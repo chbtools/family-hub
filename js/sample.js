@@ -6,8 +6,8 @@
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.HubSample = api;
 })(typeof globalThis !== "undefined" ? globalThis : this, function (L) {
-  function cat(id, name, book, kind, monthly, sort) {
-    return { id: id, name: name, book: book, kind: kind, monthly: monthly || "", sort: sort, active: "yes" };
+  function cat(id, name, book, kind, monthly, sort, scheduleF) {
+    return { id: id, name: name, book: book, kind: kind, monthly: monthly || "", scheduleF: scheduleF || "", sort: sort, active: "yes" };
   }
 
   function build(day) {
@@ -31,6 +31,10 @@
       location: "Lillington, NC",
       digestEmails: "",
       digestHour: 6,
+      billLeadDays: 3,
+      taxRate: 15,
+      eggMargin: 50,
+      wearRate: 8,
       calendarId: "",
       calendarSync: "off",
       mileageRate: "",
@@ -50,13 +54,13 @@
       cat("cat_subs", "Subscriptions", "Personal", "expense", 40, 5),
       cat("cat_pins", "Insurance", "Personal", "expense", 0, 6),
       cat("cat_pay", "Paycheck", "Personal", "income", "", 7),
-      cat("cat_feed", "Feed", "Farm", "expense", 180, 10),
-      cat("cat_fuel", "Fuel", "Farm", "expense", 250, 11),
-      cat("cat_equip", "Equipment", "Farm", "expense", 100, 12),
-      cat("cat_fsup", "Farm supplies", "Farm", "expense", 80, 13),
-      cat("cat_fins", "Farm insurance", "Farm", "expense", 0, 14),
-      cat("cat_eggs", "Egg sales", "Farm", "income", "", 20),
-      cat("cat_tractor", "Tractor services", "Farm", "income", "", 21)
+      cat("cat_feed", "Feed", "Farm", "expense", 180, 10, "16"),
+      cat("cat_fuel", "Fuel", "Farm", "expense", 250, 11, "19"),
+      cat("cat_equip", "Equipment", "Farm", "expense", 100, 12, "26"),
+      cat("cat_fsup", "Farm supplies", "Farm", "expense", 80, 13, "29"),
+      cat("cat_fins", "Farm insurance", "Farm", "expense", 0, 14, "20"),
+      cat("cat_eggs", "Egg sales", "Farm", "income", "", 20, "4"),
+      cat("cat_tractor", "Tractor services", "Farm", "income", "", 21, "9")
     ];
     state.transactions = [
       tx("tx_pay", on(-10), "acct_joint", 2400, "income", "cat_pay", "Personal", "Employer", "Payday", "user_randy"),
@@ -256,6 +260,29 @@
       if (row.id === "tx_egg2") { row.refType = "eggSale"; row.refId = "sale2"; }
       if (row.id === "tx_trip") { row.refType = "trip"; row.refId = "trip_beach"; }
     });
+    state.merchantRules = [
+      { id: "rule_lion", pattern: "Food Lion", categoryId: "cat_groceries", book: "Personal" },
+      { id: "rule_feed", pattern: "Southern States", categoryId: "cat_feed", book: "Farm" },
+      { id: "rule_fuel", pattern: "Circle K", categoryId: "cat_fuel", book: "Farm" }
+    ];
+    state.routines = [
+      { id: "scene_away", name: "Away", active: "yes", steps: JSON.stringify([{ type: "st", deviceId: "demo_therm", capability: "thermostatMode", command: "setThermostatMode", argument: "eco" }, { type: "st", deviceId: "demo_tv", capability: "switch", command: "off" }, { type: "st", deviceId: "demo_porch", capability: "switch", command: "on" }, { type: "blink", op: "arm" }]) },
+      { id: "scene_home", name: "Home", active: "yes", steps: JSON.stringify([{ type: "st", deviceId: "demo_therm", capability: "thermostatMode", command: "setThermostatMode", argument: "heat" }, { type: "st", deviceId: "demo_therm", capability: "thermostatHeatingSetpoint", command: "setHeatingSetpoint", argument: "68" }, { type: "blink", op: "disarm" }]) },
+      { id: "scene_bed", name: "Bedtime", active: "yes", steps: JSON.stringify([{ type: "st", deviceId: "demo_tv", capability: "switch", command: "off" }, { type: "st", deviceId: "demo_porch", capability: "switch", command: "off" }, { type: "st", deviceId: "demo_lock", capability: "lock", command: "lock" }]) },
+      { id: "scene_vac", name: "Vacation", active: "yes", steps: JSON.stringify([{ type: "st", deviceId: "demo_therm", capability: "thermostatHeatingSetpoint", command: "setHeatingSetpoint", argument: "62" }, { type: "st", deviceId: "demo_tv", capability: "switch", command: "off" }, { type: "blink", op: "arm" }]) }
+    ];
+    state.upkeep = [
+      { id: "up_hvac", name: "House HVAC filter", kind: "house", everyDays: 90, everyHours: "", everyMiles: "", lastDate: on(-80), lastReading: "", notes: "Return grille in the hall." },
+      { id: "up_truck", name: "Farm truck oil", kind: "truck", everyDays: "", everyHours: "", everyMiles: 5000, lastDate: on(-60), lastReading: 84200, notes: "" },
+      { id: "up_trac", name: "Tractor engine oil", kind: "tractor", everyDays: "", everyHours: 100, everyMiles: "", lastDate: on(-30), lastReading: 820, notes: "Same hour meter as the tractor." }
+    ];
+    state.docs = [
+      { id: "doc_ins", name: "Farm policy", category: "insurance", owner: "shared", expires: on(20), link: "", notes: "Renewal packet. No policy number stored here." },
+      { id: "doc_title", name: "Truck title", category: "title", owner: "user_randy", expires: "", link: "", notes: "Paper copy in the file box." }
+    ];
+    state.wins = [
+      { id: "win_coop", goalId: "goal_coop", title: "Picked the coop footprint", date: on(-20), note: "First milestone." }
+    ];
     state.demoDevices = demoDevices();
     return state;
   }

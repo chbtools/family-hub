@@ -943,6 +943,326 @@
     toast("Saved in Money and on this trip.");
   }
 
+  function noteWin(goalId, title) {
+    const goal = L().byId(App.state.goals, goalId);
+    if (!goal) return;
+    const target = L().num(goal.targetAmount);
+    const stones = (App.state.milestones || []).filter(function (item) { return item.goalId === goalId; });
+    const hit = (target > 0 && L().num(goal.currentAmount) >= target) || (stones.length && stones.every(function (item) { return item.done === "yes"; }));
+    if (!hit) return;
+    if ((App.state.wins || []).some(function (win) { return win.goalId === goalId; })) { celebrate(title || goal.name); return; }
+    change(function (api) {
+      api.upsert("wins", { id: L().uid("win"), goalId: goalId, title: title || goal.name, date: L().today(), note: "Goal reached." });
+      api.upsert("goals", { id: goalId, status: "done" });
+    }).then(function () { celebrate(title || goal.name); render(); });
+  }
+
+  function celebrate(title) {
+    const box = document.createElement("div");
+    box.className = "confetti";
+    for (let i = 0; i < 18; i++) {
+      const bit = document.createElement("i");
+      bit.style.left = (Math.random() * 100) + "%";
+      bit.style.background = ["#1f6b3a", "#c4922a", "#b5523a", "#3c7ea6"][i % 4];
+      bit.style.animationDelay = (Math.random() * 0.25) + "s";
+      box.appendChild(bit);
+    }
+    document.body.appendChild(box);
+    setTimeout(function () { box.remove(); }, 1600);
+    toast("Win: " + title);
+  }
+
+  function resizeImage(file) {
+    return new Promise(function (resolve) {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = function () {
+        const scale = Math.min(1, 1000 / Math.max(img.width, img.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(img.width * scale));
+        canvas.height = Math.max(1, Math.round(img.height * scale));
+        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(url);
+        resolve(canvas.toDataURL("image/jpeg", 0.6));
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); resolve(""); };
+      img.src = url;
+    });
+  }
+
+  function openReceiptForm(guess) {
+    const accounts = U().accountOptions(App.state);
+    openModal("Confirm receipt", '<form class="stack" data-act="save-receipt">' +
+      '<input type="hidden" name="receiptId" value="' + U().esc(guess.driveFileId || "") + '">' +
+      U().field("Store", "payee", guess.merchant || "") +
+      U().field("Amount", "amount", guess.amount || "", "number") +
+      U().field("Date", "date", guess.date || L().today(), "date") +
+      U().select("Category", "categoryId", "", [["" , "None"]].concat(U().categoryOptions(App.state, "expense"))) +
+      bookOptions("Personal") +
+      U().select("Account", "accountId", accounts.length ? accounts[0][0] : "", accounts) +
+      '<p class="meta">' + (guess.ocr === false ? "The photo is saved. The text could not be read, so fill in the amount." : "Check the amount before saving.") + "</p>" +
+      cancelRow() + "</form>");
+  }
+
+  function snapReceipt() {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.setAttribute("capture", "environment");
+    input.onchange = function () {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      resizeImage(file).then(function (dataUrl) {
+        if (App.mode !== "live") {
+          openReceiptForm({ amount: "12.34", date: L().today(), merchant: "Food Lion", driveFileId: "" });
+          return;
+        }
+        globalThis.Store.command("receipt", { dataUrl: dataUrl }).then(function (res) {
+          if (!res || res.ok === false) { toast((res && res.error) || "The receipt was not saved."); return; }
+          openReceiptForm(res);
+        });
+      });
+    };
+    input.click();
+  }
+
+  async function saveReceipt(data) {
+    const amount = -Math.abs(L().num(data.amount));
+    if (!amount) { toast("Enter the amount."); return; }
+    await change(function (api) {
+      api.upsert("transactions", {
+        id: L().uid("tx"), date: data.date || L().today(), accountId: data.accountId, amount: amount, type: "expense",
+        categoryId: data.categoryId || "", book: data.book || "Personal", payee: data.payee || "Receipt", memo: "Receipt",
+        refType: "receipt", refId: "", externalId: "", receiptId: data.receiptId || "", createdBy: App.userId, createdAt: new Date().toISOString()
+      });
+      shiftAccount(api, data.accountId, amount);
+    });
+    closeModal();
+    toast("Receipt saved.");
+  }
+
+  function openQuote() {
+    const settings = (App.state.settings || [])[0] || {};
+    const mileage = settings.mileageRate === "" || settings.mileageRate == null ? L().irsBusinessRate(L().today()) : settings.mileageRate;
+    openModal("Quote calculator", '<form class="stack" data-act="save-quote">' +
+      U().select("Customer", "customerId", "", [["" , "No customer"]].concat((App.state.customers || []).map(function (c) { return [c.id, c.name]; }))) +
+      U().field("Name on the quote", "customerName", "") +
+      U().select("Service", "service", "bushhog", L().SERVICES) +
+      U().field("Hours", "hours", "3", "number") +
+      U().field("Rate", "rate", "85", "number") +
+      U().field("Fuel $", "fuel", "0", "number") +
+      U().field("Miles", "miles", "0", "number") +
+      U().field("Mileage rate", "mileageRate", mileage, "number") +
+      U().field("Wear $ per hour", "wearRate", settings.wearRate === "" || settings.wearRate == null ? 8 : settings.wearRate, "number") +
+      U().select("Save as", "status", "quote", [["quote", "Quote"], ["invoiced", "Invoice"]]) +
+      cancelRow() + "</form>");
+  }
+
+  async function saveQuote(data) {
+    const quote = L().jobQuote(data);
+    const customer = L().byId(App.state.customers, data.customerId);
+    await change(function (api) {
+      api.upsert("jobs", {
+        id: L().uid("job"), number: nextJobNumber(), customerId: data.customerId || "",
+        customerName: data.customerName || (customer && customer.name) || "", service: data.service, status: data.status || "quote",
+        date: L().today(), address: "", description: "Labor " + L().money(quote.labor) + ", fuel " + L().money(quote.fuel) + ", travel " + L().money(quote.travel) + ", wear " + L().money(quote.wear),
+        hours: L().num(data.hours), rate: L().num(data.rate), amount: quote.total, mileage: L().num(data.miles),
+        paidDate: "", notes: "", assignedTo: App.userId, transactionId: ""
+      });
+    });
+    closeModal();
+    toast("Saved " + L().money(quote.total) + ".");
+    go("farm/jobs");
+  }
+
+  function openRule() {
+    openModal("Merchant rule", '<form class="stack" data-act="save-rule">' +
+      U().field("Merchant contains", "pattern", "") +
+      U().select("Category", "categoryId", "", U().categoryOptions(App.state)) +
+      bookOptions("Personal") + cancelRow() + "</form>");
+  }
+
+  async function saveRule(data) {
+    if (!data.pattern) { toast("Enter the merchant text."); return; }
+    await change(function (api) {
+      api.upsert("merchantRules", { id: L().uid("rule"), pattern: data.pattern, categoryId: data.categoryId || "", book: data.book || "Personal" });
+    });
+    closeModal();
+  }
+
+  function openUpkeep() {
+    openModal("Reminder", '<form class="stack" data-act="save-upkeep">' +
+      U().field("Name", "name", "") +
+      U().select("Kind", "kind", "house", [["house", "House"], ["truck", "Truck"], ["tractor", "Tractor"], ["equipment", "Equipment"]]) +
+      U().field("Every N days", "everyDays", "", "number") +
+      U().field("Every N hours", "everyHours", "", "number") +
+      U().field("Every N miles", "everyMiles", "", "number") +
+      U().field("Last service date", "lastDate", L().today(), "date") +
+      U().field("Last hours or miles", "lastReading", "", "number") +
+      cancelRow() + "</form>");
+  }
+
+  async function saveUpkeep(data) {
+    if (!data.name) { toast("Name the reminder."); return; }
+    await change(function (api) {
+      api.upsert("upkeep", { id: L().uid("up"), name: data.name, kind: data.kind, everyDays: data.everyDays || "", everyHours: data.everyHours || "", everyMiles: data.everyMiles || "", lastDate: data.lastDate || "", lastReading: data.lastReading || "", notes: "" });
+    });
+    closeModal();
+  }
+
+  function openUpkeepLog(id) {
+    openModal("Service done", '<form class="stack" data-act="save-upkeep-log"><input type="hidden" name="id" value="' + U().esc(id) + '">' +
+      U().field("Date", "date", L().today(), "date") +
+      U().field("Hours or miles now", "reading", "", "number") +
+      U().field("What you did", "what", "") +
+      U().field("Cost", "cost", "", "number") + cancelRow() + "</form>");
+  }
+
+  async function saveUpkeepLog(data) {
+    const item = L().byId(App.state.upkeep, data.id);
+    if (!item) return;
+    await change(function (api) {
+      api.upsert("serviceLogs", { id: L().uid("svc"), equipmentId: "", upkeepId: item.id, date: data.date, hours: L().num(data.reading), what: data.what || item.name, cost: L().round2(data.cost), notes: "", by: App.userId });
+      api.upsert("upkeep", { id: item.id, lastDate: data.date, lastReading: data.reading === "" ? item.lastReading : data.reading });
+    });
+    closeModal();
+  }
+
+  function openDoc(link) {
+    openModal("Document", '<form class="stack" data-act="save-doc">' +
+      U().field("Name", "name", "") +
+      U().select("Category", "category", "insurance", [["insurance", "Insurance"], ["title", "Title"], ["warranty", "Warranty"], ["manual", "Manual"], ["other", "Other"]]) +
+      U().select("Whose", "owner", "shared", [["shared", "Shared"]].concat(U().userOptions(App.state))) +
+      U().field("Expires", "expires", "", "date") +
+      U().field("Link", "link", link || "") +
+      U().area("Notes", "notes", "") +
+      '<p class="meta">Store a link only. Leave account numbers and policy numbers out.</p>' +
+      cancelRow() + "</form>");
+  }
+
+  function uploadDoc() {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*,.pdf";
+    input.onchange = function () {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      if (App.mode !== "live") { openDoc(""); toast("Connect the sheet to store the file in Drive. You can paste a link for now."); return; }
+      resizeImage(file).then(function (dataUrl) {
+        const payload = dataUrl || "";
+        if (!payload) { toast("That file needs to be a photo, or paste a link."); return; }
+        globalThis.Store.command("receipt", { dataUrl: payload }).then(function (res) {
+          if (!res || !res.link) { toast((res && res.error) || "Upload did not finish."); return; }
+          openDoc(res.link);
+        });
+      });
+    };
+    input.click();
+  }
+
+  async function saveDoc(data) {
+    if (!data.name) { toast("Name the document."); return; }
+    await change(function (api) {
+      api.upsert("docs", { id: L().uid("doc"), name: data.name, category: data.category, owner: data.owner || "", expires: data.expires || "", link: data.link || "", notes: data.notes || "" });
+    });
+    closeModal();
+  }
+
+  function openRoutine() {
+    const devices = (App.devices || []).map(function (device) { return [device.id, device.name]; });
+    const first = devices.length ? devices[0][0] : "";
+    openModal("Scene", '<form class="stack" data-act="save-routine">' +
+      U().field("Name", "name", "") +
+      U().field("Heat setpoint (blank to skip)", "heat", "") +
+      (devices.length ? U().select("Thermostat", "thermoId", first, devices) : "") +
+      '<label class="checkline"><input type="checkbox" name="tvOff" value="yes"><span>Turn the TV off</span></label>' +
+      (devices.length ? U().select("TV or switch", "switchId", first, [["", "None"]].concat(devices)) : "") +
+      U().select("That switch", "switchCmd", "off", [["off", "Off"], ["on", "On"]]) +
+      U().select("Blink", "blink", "", [["", "Leave Blink alone"], ["arm", "Arm"], ["disarm", "Disarm"]]) +
+      cancelRow() + "</form>", true);
+  }
+
+  async function saveRoutine(data) {
+    if (!data.name) { toast("Name the scene."); return; }
+    const steps = [];
+    if (data.heat && data.thermoId) steps.push({ type: "st", deviceId: data.thermoId, capability: "thermostatHeatingSetpoint", command: "setHeatingSetpoint", argument: String(data.heat) });
+    if (data.tvOff === "yes") {
+      const tv = (App.devices || []).find(function (device) { return device.kind === "tv"; });
+      if (tv) steps.push({ type: "st", deviceId: tv.id, capability: "switch", command: "off" });
+    }
+    if (data.switchId) steps.push({ type: "st", deviceId: data.switchId, capability: "switch", command: data.switchCmd || "off" });
+    if (data.blink) steps.push({ type: "blink", op: data.blink });
+    await change(function (api) {
+      api.upsert("routines", { id: L().uid("scene"), name: data.name, steps: JSON.stringify(steps), active: "yes" });
+    });
+    closeModal();
+  }
+
+  async function runRoutine() {
+    const scene = App.pendingRoutine;
+    closeModal();
+    if (!scene) return;
+    let steps = [];
+    try { steps = JSON.parse(scene.steps || "[]"); } catch (e) { steps = []; }
+    if (App.mode !== "live") {
+      steps.forEach(function (step) {
+        if (step.type === "st") {
+          const device = (App.devices || []).find(function (item) { return item.id === step.deviceId; });
+          if (device) applyDemo(device, step);
+        }
+      });
+      toast("Sample data: " + scene.name + " was not sent to the house.");
+      render();
+      return;
+    }
+    for (let i = 0; i < steps.length; i++) {
+      const step = steps[i];
+      if (step.type === "blink") await globalThis.Store.command("blink", { op: step.op, networkId: step.networkId || "" });
+      else await globalThis.Store.command("st", { op: "command", deviceId: step.deviceId, capability: step.capability, command: step.command, argument: step.argument || "" });
+    }
+    toast(scene.name + " sent.");
+    refreshDevices(true);
+  }
+
+  function loadWeather(force) {
+    if (App.mode !== "live") { App.weather = null; if (force) render(); return; }
+    globalThis.Store.command("weather", {}).then(function (res) {
+      if (res && res.ok) { App.weather = res; if (force || App.route === "home" || App.route === "weather") render(); }
+      else if (force) toast((res && res.error) || "Weather did not load.");
+    });
+  }
+
+  function enableNotifications() {
+    if (!("Notification" in window)) { toast("This browser does not show notifications."); return; }
+    Notification.requestPermission().then(function (result) {
+      if (result === "granted") { toast("Notifications are on while Family Hub is open."); pingNotifications(); }
+      else toast("Notifications stay off.");
+    });
+  }
+
+  function pingNotifications() {
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
+    if (sessionStorage.getItem("hub-noted") === L().today()) return;
+    const day = L().today();
+    const settings = (App.state.settings || [])[0] || {};
+    const lead = settings.billLeadDays === "" || settings.billLeadDays == null ? 3 : Number(settings.billLeadDays);
+    const due = (App.state.bills || []).filter(function (bill) {
+      const view = L().billView(bill, App.state.billPayments, day);
+      return view.days != null && view.days >= 0 && view.days <= lead;
+    });
+    if (!due.length) return;
+    sessionStorage.setItem("hub-noted", day);
+    try { new Notification("Family Hub", { body: due[0].name + " is due " + (due[0] ? L().billView(due[0], App.state.billPayments, day).due : "") }); } catch (e) {}
+  }
+
+  function exportScheduleF() {
+    const year = String(L().today()).slice(0, 4);
+    const rows = L().scheduleF(App.state, year).map(function (line) {
+      return { line: line.line, kind: line.kind, amount: line.amount.toFixed(2) };
+    });
+    download("schedule-f-" + year + ".csv", L().toCsv(rows, ["line", "kind", "amount"]), "text/csv");
+  }
+
   const actions = {
     close: function () { closeModal(); },
     quick: function () {
@@ -1006,6 +1326,24 @@
       }));
       render();
     },
+    "snap-receipt": function () { snapReceipt(); },
+    "open-quote": function () { openQuote(); },
+    "add-rule": function () { openRule(); },
+    "add-upkeep": function () { openUpkeep(); },
+    "log-upkeep": function (el) { openUpkeepLog(el.dataset.id); },
+    "add-doc": function () { openDoc(); },
+    "upload-doc": function () { uploadDoc(); },
+    "add-routine": function () { openRoutine(); },
+    "run-routine": function (el) {
+      const scene = L().byId(App.state.routines, el.dataset.id);
+      if (!scene) return;
+      App.pendingRoutine = scene;
+      ask("Run " + scene.name + "?", "This sends the saved house commands. Blink runs only if this scene includes it.", "run-routine-go");
+    },
+    "run-routine-go": function () { runRoutine(); },
+    "refresh-weather": function () { loadWeather(true); },
+    "enable-notifications": function () { enableNotifications(); },
+    "export-schedule-f": function () { exportScheduleF(); },
     "add-shop": function () {
       go("today/shop");
       setTimeout(function () { const box = document.getElementById("itemName"); if (box) box.focus(); }, 50);
@@ -1194,10 +1532,12 @@
       return;
     }
     if (act === "save-goal") {
+      const id = data.id || L().uid("goal");
       await change(function (api) {
-        api.upsert("goals", { id: data.id || L().uid("goal"), name: data.name, kind: data.kind, scope: data.scope, owner: data.owner, targetAmount: L().round2(data.targetAmount), currentAmount: L().round2(data.currentAmount), targetDate: data.targetDate || "", status: "active", notes: data.notes || "" });
+        api.upsert("goals", { id: id, name: data.name, kind: data.kind, scope: data.scope, owner: data.owner, targetAmount: L().round2(data.targetAmount), currentAmount: L().round2(data.currentAmount), targetDate: data.targetDate || "", status: "active", notes: data.notes || "" });
       });
       closeModal();
+      noteWin(id, data.name);
       return;
     }
     if (act === "save-milestone") {
@@ -1310,12 +1650,23 @@
       if (box) box.focus();
       return;
     }
+    if (act === "save-receipt") return saveReceipt(data);
+    if (act === "save-quote") return saveQuote(data);
+    if (act === "save-rule") return saveRule(data);
+    if (act === "save-upkeep") return saveUpkeep(data);
+    if (act === "save-upkeep-log") return saveUpkeepLog(data);
+    if (act === "save-doc") return saveDoc(data);
+    if (act === "save-routine") return saveRoutine(data);
     if (act === "save-settings") {
       await change(function (api) {
         api.upsert("settings", {
           id: "hub", randyName: data.randyName, partnerName: data.partnerName, farmName: data.farmName,
           location: data.location, digestEmails: data.digestEmails || "", digestHour: parseInt(data.digestHour, 10) || 6,
-          calendarId: data.calendarId || "", calendarSync: data.calendarSync || "off", mileageRate: data.mileageRate || ""
+          calendarId: data.calendarId || "", calendarSync: data.calendarSync || "off", mileageRate: data.mileageRate || "",
+          billLeadDays: data.billLeadDays === "" ? 3 : parseInt(data.billLeadDays, 10) || 0,
+          taxRate: data.taxRate === "" ? 15 : L().num(data.taxRate),
+          eggMargin: data.eggMargin === "" ? 50 : L().num(data.eggMargin),
+          wearRate: data.wearRate === "" ? 8 : L().num(data.wearRate)
         });
         api.upsert("users", { id: "user_randy", name: data.randyName || "Randy Johnson" });
         api.upsert("users", { id: "user_partner", name: data.partnerName || "Partner" });
@@ -1499,6 +1850,8 @@
       try { App.devices = JSON.parse(localStorage.getItem("hub-devices-v1") || "[]"); } catch (e) { App.devices = []; }
     }
     render();
+    loadWeather(false);
+    pingNotifications();
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js").catch(function () {});
     if (App.mode === "live" && !App.needsCode) {
       const res = await globalThis.Store.refresh();
@@ -1507,6 +1860,8 @@
       else App.offline = true;
       render();
       refreshDevices(true);
+      loadWeather(false);
+      pingNotifications();
     }
     setInterval(function () {
       if (document.hidden || App.modal || App.mode !== "live" || App.needsCode) return;

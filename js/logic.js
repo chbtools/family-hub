@@ -8,10 +8,10 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   const FIELDS = {
     users: ["id", "name", "role", "active", "createdAt"],
-    settings: ["id", "randyName", "partnerName", "farmName", "location", "digestEmails", "digestHour", "calendarId", "calendarSync", "mileageRate", "createdAt"],
+    settings: ["id", "randyName", "partnerName", "farmName", "location", "digestEmails", "digestHour", "calendarId", "calendarSync", "mileageRate", "billLeadDays", "taxRate", "eggMargin", "wearRate", "createdAt"],
     accounts: ["id", "name", "type", "book", "balance", "institution", "notes", "updatedAt"],
-    transactions: ["id", "date", "accountId", "amount", "type", "categoryId", "book", "payee", "memo", "refType", "refId", "createdBy", "createdAt"],
-    categories: ["id", "name", "book", "kind", "monthly", "sort", "active"],
+    transactions: ["id", "date", "accountId", "amount", "type", "categoryId", "book", "payee", "memo", "refType", "refId", "externalId", "receiptId", "createdBy", "createdAt"],
+    categories: ["id", "name", "book", "kind", "monthly", "scheduleF", "sort", "active"],
     budgets: ["id", "categoryId", "month", "amount"],
     bills: ["id", "name", "payee", "amount", "dueDay", "startMonth", "book", "categoryId", "accountId", "autopay", "assignedTo", "active", "notes"],
     billPayments: ["id", "billId", "dueDate", "paidDate", "amount", "paidBy", "accountId", "transactionId"],
@@ -33,7 +33,7 @@
     customers: ["id", "name", "phone", "email", "kind", "notes"],
     jobs: ["id", "number", "customerId", "customerName", "service", "status", "date", "address", "description", "hours", "rate", "amount", "mileage", "paidDate", "notes", "assignedTo", "transactionId"],
     equipment: ["id", "name", "type", "hours", "status", "notes"],
-    serviceLogs: ["id", "equipmentId", "date", "hours", "what", "cost", "notes", "by"],
+    serviceLogs: ["id", "equipmentId", "upkeepId", "date", "hours", "what", "cost", "notes", "by"],
     flock: ["id", "species", "breed", "count", "acquired", "status", "notes"],
     mileage: ["id", "date", "vehicle", "miles", "hours", "purpose", "book", "jobId", "notes"],
     trips: ["id", "name", "destination", "startDate", "endDate", "departTime", "travelers", "budget", "spent", "trackMoney", "notes"],
@@ -41,11 +41,17 @@
     tripItems: ["id", "tripId", "listName", "kind", "assignee", "text", "done", "sort"],
     templates: ["id", "name", "kind", "notes"],
     templateItems: ["id", "templateId", "text", "assignee", "sort"],
-    layouts: ["id", "userId", "body", "updatedAt"]
+    layouts: ["id", "userId", "body", "updatedAt"],
+    merchantRules: ["id", "pattern", "categoryId", "book"],
+    routines: ["id", "name", "steps", "active"],
+    upkeep: ["id", "name", "kind", "everyDays", "everyHours", "everyMiles", "lastDate", "lastReading", "notes"],
+    docs: ["id", "name", "category", "owner", "expires", "link", "notes"],
+    wins: ["id", "goalId", "title", "date", "note"]
   };
 
   const WIDGETS = [
     ["vacation", "Next trip", "lg"],
+    ["weather", "Weather", "md"],
     ["bills", "Bills", "md"],
     ["money", "Money", "md"],
     ["farm", "Farm", "md"],
@@ -53,15 +59,22 @@
     ["shopping", "Shopping", "md"],
     ["events", "Calendar", "md"],
     ["budgets", "Budgets", "md"],
+    ["upkeep", "Upkeep", "md"],
+    ["routines", "Routines", "md"],
+    ["wins", "Wins", "sm"],
     ["goals", "Goals", "sm"],
-    ["devices", "House", "lg"]
+    ["devices", "House", "lg"],
+    ["prices", "Egg prices", "sm", false],
+    ["tax", "Quarterly tax", "sm", false],
+    ["docs", "Documents", "sm", false]
   ];
 
   const NUMERIC = [
     "balance", "amount", "monthly", "sort", "dueDay", "digestHour", "mileageRate",
     "principal", "apr", "payment", "assets", "liabilities", "net", "targetAmount",
     "currentAmount", "budget", "spent", "count", "dozens", "price", "total",
-    "hours", "rate", "mileage", "miles", "cost"
+    "hours", "rate", "mileage", "miles", "cost", "billLeadDays", "taxRate", "eggMargin", "wearRate",
+    "everyDays", "everyHours", "everyMiles", "lastReading"
   ];
 
   const SERVICES = [
@@ -437,6 +450,24 @@
         date = addDays(date, 1);
         guard++;
       }
+    });
+    (state.upkeep || []).forEach(function (item) {
+      const view = upkeepView(item, from);
+      if (!view.due || view.due < from || view.due > to) return;
+      items.push({ id: "upkeep_" + item.id, date: view.due, time: "", title: (item.name || "Service") + " due", owner: "", category: "upkeep", source: "upkeep", sourceId: item.id, notes: item.kind || "" });
+    });
+    (state.docs || []).forEach(function (doc) {
+      if (!doc.expires || doc.expires < from || doc.expires > to) return;
+      items.push({ id: "doc_" + doc.id, date: doc.expires, time: "", title: (doc.name || "Document") + " expires", owner: doc.owner || "", category: "doc", source: "doc", sourceId: doc.id, notes: "" });
+    });
+    const years = {};
+    years[from.slice(0, 4)] = true;
+    years[to.slice(0, 4)] = true;
+    Object.keys(years).forEach(function (year) {
+      quarterDates(year).forEach(function (date) {
+        if (date < from || date > to) return;
+        items.push({ id: "tax_" + date, date: date, time: "", title: "Estimated tax due", owner: "", category: "tax", source: "tax", sourceId: date, notes: "" });
+      });
     });
     items.sort(function (a, b) {
       if (a.date !== b.date) return a.date < b.date ? -1 : 1;
@@ -833,11 +864,147 @@
     WIDGETS: WIDGETS,
     defaultLayout: defaultLayout,
     normalizeLayout: normalizeLayout,
-    chooseLayout: chooseLayout
+    chooseLayout: chooseLayout,
+    matchRule: matchRule,
+    planImport: planImport,
+    eggPrices: eggPrices,
+    jobQuote: jobQuote,
+    farmTax: farmTax,
+    quarterDates: quarterDates,
+    scheduleF: scheduleF,
+    upkeepView: upkeepView,
+    weatherCare: weatherCare
   };
 
+  function matchRule(rules, merchant) {
+    const text = String(merchant || "").toLowerCase();
+    let best = null;
+    (rules || []).forEach(function (rule) {
+      const pattern = String(rule.pattern || "").toLowerCase();
+      if (!pattern || text.indexOf(pattern) < 0) return;
+      if (!best || pattern.length > String(best.pattern || "").length) best = rule;
+    });
+    return {
+      categoryId: best ? best.categoryId || "" : "",
+      book: best && best.book === "Farm" ? "Farm" : "Personal"
+    };
+  }
+
+  function planImport(existingIds, rows, rules) {
+    const seen = {};
+    (existingIds || []).forEach(function (id) { if (id) seen[String(id)] = true; });
+    const accepted = [];
+    const skipped = [];
+    (rows || []).forEach(function (row) {
+      const externalId = String(row.externalId || row.id || "");
+      if (!externalId || seen[externalId]) { skipped.push(externalId || ""); return; }
+      seen[externalId] = true;
+      const rule = matchRule(rules, row.merchant || row.description || "");
+      const amount = round2(row.amount);
+      accepted.push({
+        date: String(row.date || "").slice(0, 10),
+        amount: amount,
+        type: amount < 0 ? "expense" : "income",
+        payee: String(row.merchant || row.description || "Bank").slice(0, 120),
+        account: String(row.account || ""),
+        externalId: externalId,
+        categoryId: rule.categoryId,
+        book: rule.book
+      });
+    });
+    return { accepted: accepted, skipped: skipped };
+  }
+
+  function eggPrices(state, from, to, marginPercent) {
+    const eggs = eggTotals(state.eggs || [], from, to);
+    let cost = 0;
+    (state.transactions || []).forEach(function (row) {
+      if (row.book !== "Farm" || row.type === "transfer" || num(row.amount) >= 0) return;
+      if (from && row.date < from) return;
+      if (to && row.date > to) return;
+      const cat = byId(state.categories, row.categoryId);
+      const name = cat ? cat.name : "";
+      if (row.categoryId === "cat_feed" || /feed/i.test(name)) cost += Math.abs(num(row.amount));
+    });
+    const margin = marginPercent == null || marginPercent === "" ? 50 : num(marginPercent);
+    function line(species) {
+      const count = eggs[species] || 0;
+      const dozens = count / 12;
+      const share = eggs.total ? cost * (count / eggs.total) : 0;
+      const perDozen = dozens ? share / dozens : 0;
+      return { count: count, dozens: round2(dozens), cost: round2(share), perDozen: round2(perDozen), suggested: round2(perDozen * (1 + margin / 100)) };
+    }
+    return { duck: line("duck"), chicken: line("chicken"), quail: line("quail"), feedCost: round2(cost), margin: margin };
+  }
+
+  function jobQuote(input) {
+    input = input || {};
+    const hours = num(input.hours);
+    const labor = hours * num(input.rate);
+    const fuel = num(input.fuel);
+    const travel = num(input.miles) * num(input.mileageRate);
+    const wear = hours * num(input.wearRate);
+    return { labor: round2(labor), fuel: round2(fuel), travel: round2(travel), wear: round2(wear), total: round2(labor + fuel + travel + wear) };
+  }
+
+  function farmTax(profit, ratePercent) {
+    const base = num(profit);
+    if (base <= 0) return 0;
+    return round2(base * num(ratePercent) / 100);
+  }
+
+  function quarterDates(year) {
+    const y = Number(year);
+    return [y + "-04-15", y + "-06-15", y + "-09-15", (y + 1) + "-01-15"];
+  }
+
+  function scheduleF(state, year) {
+    const period = String(year);
+    const lines = {};
+    function add(line, kind, amount) {
+      const key = kind + "|" + line;
+      if (!lines[key]) lines[key] = { line: String(line), kind: kind, amount: 0 };
+      lines[key].amount = round2(lines[key].amount + amount);
+    }
+    (state.transactions || []).forEach(function (row) {
+      if (row.book !== "Farm" || row.type === "transfer" || !inPeriod(row.date, period)) return;
+      const cat = byId(state.categories, row.categoryId);
+      const line = (cat && cat.scheduleF) || (num(row.amount) >= 0 ? "4" : "32");
+      const amount = num(row.amount);
+      if (!amount) return;
+      add(line, amount > 0 ? "income" : "expense", Math.abs(amount));
+    });
+    return Object.keys(lines).map(function (key) { return lines[key]; }).sort(function (a, b) { return String(a.line).localeCompare(String(b.line), undefined, { numeric: true }); });
+  }
+
+  function upkeepView(item, day) {
+    const everyDays = parseInt(item.everyDays, 10);
+    const due = item.lastDate && everyDays ? addDays(item.lastDate, everyDays) : "";
+    let status = "ok";
+    let days = null;
+    if (due) {
+      days = diffDays(day, due);
+      if (days < 0) status = "overdue";
+      else if (days <= 14) status = "soon";
+    }
+    const step = num(item.everyHours) || num(item.everyMiles);
+    const next = step ? round2(num(item.lastReading) + step) : "";
+    return { due: due, days: days, status: status, next: next };
+  }
+
+  function weatherCare(report) {
+    const notes = [];
+    const periods = (report && report.periods) || [];
+    const alerts = (report && report.alerts) || [];
+    if (periods.some(function (p) { return num(p.temp) <= 32; })) notes.push("Freeze: check shelter and unfrozen water.");
+    else if (periods.some(function (p) { return num(p.temp) <= 36; })) notes.push("Frost: cover waterers and collect eggs early.");
+    if (periods.some(function (p) { return num(p.temp) >= 95; })) notes.push("Heat: extra water and shade for the birds.");
+    if (alerts.some(function (a) { return /storm|thunder|tornado|wind|hurricane/i.test(String(a.event || "") + String(a.headline || "")); })) notes.push("Storm: secure the coop and bring tools in.");
+    return notes;
+  }
+
   function defaultLayout() {
-    return WIDGETS.map(function (row) { return { id: row[0], size: row[2], show: true }; });
+    return WIDGETS.map(function (row) { return { id: row[0], size: row[2], show: row[3] !== false }; });
   }
 
   function normalizeLayout(input) {
@@ -852,7 +1019,7 @@
       out.push({ id: item.id, size: size, show: item.show !== false && item.show !== "no" });
     });
     WIDGETS.forEach(function (row) {
-      if (!seen[row[0]]) out.push({ id: row[0], size: row[2], show: true });
+      if (!seen[row[0]]) out.push({ id: row[0], size: row[2], show: row[3] !== false });
     });
     return out;
   }
