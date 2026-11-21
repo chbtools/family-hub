@@ -1405,6 +1405,32 @@
       const on = el.dataset.on === "yes";
       document.querySelectorAll('form[data-act="preview-dup-delete"] input[name="drop"]').forEach(function (box) { box.checked = on; });
     },
+    "confirm-recurring": function () {
+      const chosen = App.recurringAdd || [];
+      App.recurringAdd = [];
+      if (!chosen.length) { closeModal(); toast("Nothing selected."); return; }
+      change(function (api) {
+        chosen.forEach(function (row) {
+          if (row.kind === "subscription") {
+            api.upsert("subscriptions", {
+              id: L().uid("sub"), name: row.merchant, amount: row.amount, cadence: row.cadence,
+              nextDate: row.nextDate, book: "Personal", categoryId: "", assignedTo: "", active: "yes", notes: ""
+            });
+          } else {
+            const due = parseInt(String(row.lastDate || "").slice(8, 10), 10) || 1;
+            api.upsert("bills", {
+              id: L().uid("bill"), name: row.merchant, payee: row.merchant, amount: row.amount,
+              dueDay: Math.max(1, Math.min(31, due)), startMonth: L().monthKey(L().today()),
+              book: "Personal", categoryId: "", accountId: "", autopay: "no", assignedTo: "", active: "yes", notes: ""
+            });
+          }
+        });
+      }).then(function () {
+        closeModal();
+        toast("Added " + chosen.length + ".");
+        render();
+      });
+    },
     "confirm-dup-delete": function () {
       const pairs = L().duplicatePairs(App.state.transactions, App.state.accounts);
       const ids = L().cleanupIds(pairs, App.dupDeleteIds || []);
@@ -1724,6 +1750,18 @@
       });
       toast("Settings saved.");
       render();
+      return;
+    }
+    if (act === "preview-recurring") {
+      const candidates = L().recurringCharges(App.state.transactions, App.state.bills, App.state.subscriptions);
+      const kinds = {};
+      candidates.forEach(function (row) { kinds[row.id] = data["kind_" + row.id]; });
+      const chosen = L().chosenRecurring(candidates, data.pick || "", kinds);
+      if (!chosen.length) { toast("Tick the charges to add. Nothing was added."); return; }
+      App.recurringAdd = chosen;
+      const bills = chosen.filter(function (row) { return row.kind !== "subscription"; }).length;
+      const subs = chosen.length - bills;
+      ask("Add " + chosen.length + "?", bills + " as bills and " + subs + " as subscriptions. Nothing else is added.", "confirm-recurring");
       return;
     }
     if (act === "preview-dup-delete") {

@@ -196,6 +196,53 @@ test("cleanup selection never includes the bank row and starts with nothing chec
   ], accounts).length, 0);
 });
 
+test("recurring charges group a merchant, skip ones already tracked, and add only ticked rows", () => {
+  const txs = [
+    { date: "2026-08-18", amount: -180, type: "expense", payee: "Electric co-op" },
+    { date: "2026-09-18", amount: -170, type: "expense", payee: "ELECTRIC CO-OP" },
+    { date: "2026-10-18", amount: -190, type: "expense", payee: "Electric co-op" },
+    { date: "2026-06-01", amount: -40, type: "expense", payee: "WAL-MART #1234" },
+    { date: "2026-07-01", amount: -42, type: "expense", payee: "Walmart" },
+    { date: "2026-08-02", amount: -39, type: "expense", payee: "Walmart" },
+    { date: "2026-09-01", amount: -400, type: "expense", payee: "Walmart" },
+    { date: "2026-01-06", amount: -9, type: "expense", payee: "Gym" },
+    { date: "2026-01-13", amount: -9, type: "expense", payee: "Gym" },
+    { date: "2026-01-20", amount: -9, type: "expense", payee: "Gym" },
+    { date: "2025-11-01", amount: -80, type: "expense", payee: "Domain" },
+    { date: "2026-11-02", amount: -80, type: "expense", payee: "Domain" },
+    { date: "2026-03-01", amount: -20, type: "expense", payee: "Once" },
+    { date: "2026-04-01", amount: -20, type: "expense", payee: "Once" }
+  ];
+  const found = L.recurringCharges(txs, [], []);
+  const electric = found.find((row) => row.merchant === "Electric co-op");
+  assert.ok(electric);
+  assert.equal(electric.cadence, "monthly");
+  assert.equal(electric.suggested, "bill");
+  assert.equal(electric.lastDate, "2026-10-18");
+  assert.equal(electric.nextDate, "2026-11-18");
+  assert.equal(electric.amount, 180);
+  const walmart = found.filter((row) => row.cadence === "monthly" && row.amount < 50);
+  assert.equal(walmart.length, 1);
+  assert.equal(found.some((row) => row.amount === 400), false);
+  const gym = found.find((row) => row.merchant === "Gym");
+  assert.equal(gym.cadence, "weekly");
+  assert.equal(gym.suggested, "subscription");
+  assert.equal(gym.nextDate, "2026-01-27");
+  const domain = found.find((row) => row.merchant === "Domain");
+  assert.equal(domain.cadence, "yearly");
+  assert.equal(domain.count, 2);
+  assert.equal(found.some((row) => row.merchant === "Once"), false);
+  const skipped = L.recurringCharges(txs, [{ name: "Electric co-op", payee: "Lumbee" }], [{ name: "Gym" }]);
+  assert.equal(skipped.some((row) => row.merchant === "Electric co-op" || row.merchant === "Gym"), false);
+  assert.deepEqual(L.chosenRecurring(found, []), []);
+  const picked = L.chosenRecurring(found, [electric.id, gym.id], {});
+  assert.deepEqual(picked.map((row) => row.kind), ["bill", "subscription"]);
+  const flipped = L.chosenRecurring(found, [electric.id], { [electric.id]: "subscription" });
+  assert.equal(flipped.length, 1);
+  assert.equal(flipped[0].kind, "subscription");
+  assert.equal(L.chosenRecurring(found, ["nope"]).length, 0);
+});
+
 test("Rocket Money spending is flipped and duplicates are skipped", () => {
   const text = [
     "Date,Original Date,Account Type,Account Name,Account Number,Institution Name,Name,Custom Name,Amount,Description,Category,Note,Ignored From,Tax Deductible,Extra",

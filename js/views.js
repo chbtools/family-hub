@@ -205,7 +205,7 @@
       const who = L.userName(App.state, bill.assignedTo);
       return '<article class="item"><div class="grow"><strong>' + U().esc(bill.name) + "</strong><p class=\"meta\">" + U().esc(L.money(bill.amount)) + " · " + U().esc(view.due ? U().shortDate(view.due) + " · " + U().rel(view.days) : "no open due date") + " · " + U().esc(who) + "</p><p>" + U().chip(view.status, view.status) + (bill.autopay === "yes" ? U().chip("Autopay", "ok") : "") + U().chip(bill.book, bill.book === "Farm" ? "farm" : "personal") + "</p></div><button class=\"primary\" type=\"button\" data-act=\"pay-bill\" data-id=\"" + U().esc(bill.id) + "\">Mark paid</button></article>";
     }).join("") || '<p class="empty">No bills yet.</p>';
-    return moneyNav() + head("Bills", "Due dates also show on the calendar.") + '<p><button class="primary" type="button" data-act="add-bill">Add bill</button></p><div class="list">' + rows + "</div>";
+    return moneyNav() + head("Bills", "Due dates also show on the calendar.") + '<p class="row wrap"><button class="primary" type="button" data-act="add-bill">Add bill</button><a class="btn" href="#money/recurring" data-go="money/recurring">Find recurring</a></p><div class="list">' + rows + "</div>";
   }
 
   function budgets() {
@@ -237,7 +237,7 @@
       if (String(sub.active) !== "no") monthly += each;
       return '<div class="item"><div class="grow"><strong>' + U().esc(sub.name) + "</strong><p class=\"meta\">" + U().esc(L.money(sub.amount)) + " " + U().esc(sub.cadence) + " · next " + U().esc(U().shortDate(sub.nextDate)) + "</p></div>" + U().amt(-each) + "</div>";
     }).join("") || '<p class="empty">No subscriptions yet.</p>';
-    return moneyNav() + head("Subscriptions", "About " + L.money(monthly) + " a month.") + '<p><button class="primary" type="button" data-act="add-sub">Add subscription</button></p><div class="list">' + rows + "</div>";
+    return moneyNav() + head("Subscriptions", "About " + L.money(monthly) + " a month.") + '<p class="row wrap"><button class="primary" type="button" data-act="add-sub">Add subscription</button><a class="btn" href="#money/recurring" data-go="money/recurring">Find recurring</a></p><div class="list">' + rows + "</div>";
   }
 
   function farm() {
@@ -838,6 +838,18 @@
     return moneyNav() + head("Find duplicates", "Imported rows that match a SECU or other bank transaction.") + body;
   }
 
+  function recurringPage() {
+    const L = Logic();
+    const rows = L.recurringCharges(App.state.transactions, App.state.bills, App.state.subscriptions);
+    const list = rows.map(function (row) {
+      return '<div class="item dup-pair"><label class="checkline"><input type="checkbox" name="pick" value="' + U().esc(row.id) + '"><span class="sr">Add ' + U().esc(row.merchant) + '</span></label><div class="grow"><strong>' + U().esc(row.merchant) + "</strong><p class=\"meta\">" + U().esc(L.money(row.amount)) + " · " + U().esc(row.cadence) + " · last " + U().esc(U().shortDate(row.lastDate)) + " · next " + U().esc(U().shortDate(row.nextDate)) + " · " + row.count + " charges</p>" + U().select("Add as", "kind_" + row.id, row.suggested, [["bill", "Bill"], ["subscription", "Subscription"]]) + "</div></div>";
+    }).join("");
+    const body = rows.length
+      ? '<form class="stack" data-act="preview-recurring"><p class="meta">Nothing is checked. Tick a row and choose Bill or Subscription. Only those are added.</p><div class="list">' + list + '</div><button class="primary" type="submit">Add selected</button></form>'
+      : '<p class="empty">No new repeating charge. A bill or subscription you already have is skipped.</p>';
+    return moneyNav() + head("Find recurring", "Expenses that repeat weekly, monthly, or yearly.") + body;
+  }
+
   function rulesPage() {
     const L = Logic();
     const rows = (App.state.merchantRules || []).map(function (rule) {
@@ -938,6 +950,7 @@
     if (route === "money") return money();
     if (route === "money/transactions") return transactions();
     if (route === "money/duplicates") return duplicatesPage();
+    if (route === "money/recurring") return recurringPage();
     if (route === "money/bills") return bills();
     if (route === "money/budgets") return budgets();
     if (route === "money/debts") return debts();
