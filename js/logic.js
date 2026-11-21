@@ -818,6 +818,123 @@
     return out;
   }
 
+  function medianAmount(values) {
+    const sorted = values.slice().sort(function (a, b) { return a - b; });
+    if (!sorted.length) return 0;
+    const mid = Math.floor(sorted.length / 2);
+    if (sorted.length % 2) return sorted[mid];
+    return (sorted[mid - 1] + sorted[mid]) / 2;
+  }
+
+  function amountClusters(rows) {
+    const sorted = rows.slice().sort(function (a, b) { return Math.abs(num(a.amount)) - Math.abs(num(b.amount)); });
+    const clusters = [];
+    sorted.forEach(function (row) {
+      const amount = Math.abs(num(row.amount));
+      let placed = false;
+      for (let i = 0; i < clusters.length && !placed; i++) {
+        const mid = medianAmount(clusters[i].map(function (item) { return Math.abs(num(item.amount)); }));
+        const close = mid === 0 ? amount === 0 : Math.abs(amount - mid) / mid <= 0.1;
+        if (close) { clusters[i].push(row); placed = true; }
+      }
+      if (!placed) clusters.push([row]);
+    });
+    return clusters;
+  }
+
+  function cadenceOf(rows) {
+    const dates = [];
+    rows.forEach(function (row) {
+      if (row.date && dates.indexOf(row.date) < 0) dates.push(row.date);
+    });
+    dates.sort();
+    if (dates.length < 2) return "";
+    const gaps = [];
+    for (let i = 1; i < dates.length; i++) gaps.push(Math.abs(diffDays(dates[i - 1], dates[i])));
+    function regular(min, max) {
+      return gaps.every(function (gap) { return gap >= min && gap <= max; });
+    }
+    if (dates.length >= 3 && regular(6, 8)) return "weekly";
+    if (dates.length >= 3 && regular(28, 35)) return "monthly";
+    if (dates.length >= 2 && regular(350, 380)) return "yearly";
+    return "";
+  }
+
+  function nextRecurringDate(last, cadence) {
+    if (cadence === "weekly") return addDays(last, 7);
+    const p = parts(last);
+    if (cadence === "yearly") return iso(p.y + 1, p.m, p.d);
+    const stamp = new Date(Date.UTC(p.y, p.m - 1 + 1, 1));
+    const y = stamp.getUTCFullYear();
+    const m = stamp.getUTCMonth() + 1;
+    return iso(y, m, Math.min(p.d, daysInMonth(y, m)));
+  }
+
+  function trackedMerchant(key, bills, subscriptions) {
+    const names = [];
+    (bills || []).forEach(function (bill) { names.push(bill.name, bill.payee); });
+    (subscriptions || []).forEach(function (sub) { names.push(sub.name); });
+    return names.some(function (name) { return merchantKey(name) === key || payeesSimilar(name, key); });
+  }
+
+  function recurringCharges(transactions, bills, subscriptions) {
+    const groups = {};
+    const labels = {};
+    (transactions || []).forEach(function (tx) {
+      if (tx.type === "income" || tx.type === "transfer") return;
+      if (num(tx.amount) >= 0) return;
+      const key = merchantKey(tx.payee);
+      if (!key || !tx.date) return;
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(tx);
+      const label = String(tx.payee || "").trim();
+      if (!labels[key]) labels[key] = {};
+      labels[key][label] = (labels[key][label] || 0) + 1;
+    });
+    const out = [];
+    Object.keys(groups).forEach(function (key) {
+      if (trackedMerchant(key, bills, subscriptions)) return;
+      let merchant = key;
+      let best = 0;
+      Object.keys(labels[key]).forEach(function (label) {
+        if (labels[key][label] > best) { best = labels[key][label]; merchant = label; }
+      });
+      amountClusters(groups[key]).forEach(function (cluster) {
+        const cadence = cadenceOf(cluster);
+        if (!cadence) return;
+        const dates = cluster.map(function (row) { return row.date; }).sort();
+        const amount = round2(medianAmount(cluster.map(function (row) { return Math.abs(num(row.amount)); })));
+        const lastDate = dates[dates.length - 1];
+        out.push({
+          id: (key + "-" + cadence + "-" + amount).replace(/[^a-z0-9.-]+/g, ""),
+          merchant: merchant,
+          amount: amount,
+          cadence: cadence,
+          lastDate: lastDate,
+          nextDate: nextRecurringDate(lastDate, cadence),
+          suggested: cadence === "weekly" ? "subscription" : "bill",
+          count: dates.length
+        });
+      });
+    });
+    out.sort(function (a, b) { return a.merchant < b.merchant ? -1 : a.merchant > b.merchant ? 1 : 0; });
+    return out;
+  }
+
+  function chosenRecurring(candidates, checked, kinds) {
+    const want = {};
+    const list = Array.isArray(checked) ? checked : String(checked || "").split(",");
+    list.forEach(function (id) {
+      const key = String(id || "").trim();
+      if (key) want[key] = true;
+    });
+    return (candidates || []).filter(function (row) { return want[row.id]; }).map(function (row) {
+      const picked = kinds && kinds[row.id];
+      const kind = picked === "subscription" || picked === "bill" ? picked : row.suggested;
+      return Object.assign({}, row, { kind: kind });
+    });
+  }
+
   function searchAll(state, query) {
     const n = String(query || "").trim().toLowerCase();
     if (n.length < 2) return [];
@@ -1023,6 +1140,8 @@
     payeesSimilar: payeesSimilar,
     duplicatePairs: duplicatePairs,
     cleanupIds: cleanupIds,
+    recurringCharges: recurringCharges,
+    chosenRecurring: chosenRecurring,
     searchAll: searchAll,
     taxRows: taxRows,
     chunkOps: chunkOps,
