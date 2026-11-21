@@ -34,6 +34,80 @@ Each person picks their name in the top corner. Randy is already there. The seco
 
 **More** holds the calendar (month, week, and agenda), vacations, goals with milestones, home and farm projects, the house controls, settings, and search. Bill due dates, scheduled farm jobs, and trip days appear on the calendar by themselves. The **+** button is quick add from any screen. **Dark** / **Light** is in the header. Search looks across bills, jobs, lists, and goals. **Download JSON** is a full backup. Transactions and the farm year also export as CSV.
 
+## Bank import
+
+Roo, or any helper you trust, can push SECU transactions once a day. The request is a POST to the same web app URL (`/exec`). It uses `IMPORT_KEY`, not the household access code. Amounts are signed: negative is money spent, positive is money in. Send `Content-Type: text/plain`.
+
+```json
+{
+  "action": "importTransactions",
+  "key": "the IMPORT_KEY you saved in Script properties",
+  "transactions": [
+    {
+      "date": "2026-11-21",
+      "amount": -42.18,
+      "merchant": "FOOD LION #123",
+      "account": "Joint checking",
+      "externalId": "secu-txn-99812"
+    }
+  ]
+}
+```
+
+`externalId` is required. A repeat of the same id is skipped. The account name is matched to an account in the sheet. The merchant is matched to **More → Bank rules** (the longest matching phrase wins). If nothing matches, the transaction is Personal and uncategorized. A rule can mark a merchant as Farm.
+
+The reply looks like `{ "ok": true, "added": 1, "skipped": 0 }`.
+
+Optional: put a SimpleFIN Bridge access URL in the script property `SIMPLEFIN_ACCESS_URL`. The daily trigger reads the last 10 days from that URL and imports them the same way. Leave the property blank if Roo is pushing SECU instead.
+
+## The other tools
+
+**Snap receipt** is on Money → Transactions. Take a photo. The script stores it in a private Drive folder named Family Hub Receipts and reads the amount, date, and store when Drive OCR is available. You confirm the category and Personal or Farm before it is saved. In Apps Script, open **Services** (the plus by Services), add **Drive API**, and save. If OCR is not turned on, the photo still saves and you type the amount.
+
+**Bill reminders** email both digest addresses a set number of days before a bill or a document expires. The count is **Bill reminder, days ahead** in Settings (3 if you leave it). **Sunday at 6pm** sends a weekly money summary. While the app is open you can tap **Allow phone notifications** in Settings. Those are browser notifications, not text messages.
+
+**Egg prices** (Farm → Egg prices, or add the card) divides recent feed spending by the dozens collected, by species, and suggests a price using **Egg price margin %**.
+
+**Quote calculator** is on Farm → Jobs. Hours times rate, plus fuel, miles times the mileage rate, plus wear per hour. Save it as a quote or an invoice.
+
+**Quarterly tax** estimates farm profit times **Farm tax estimate %**. It is a planning number, not a return. The calendar shows April 15, June 15, September 15, and January 15. **Schedule F CSV** totals income and expenses by the line number stored on each farm category.
+
+**Routines** are Away, Home, Bedtime, and Vacation. Each is a list of SmartThings commands, plus arm or disarm Blink when you include that. The app asks before it runs them.
+
+**Laundry** is checked about once an hour. When a washer or dryer goes from running to finished, both digest addresses get an email. This needs `SMARTTHINGS_TOKEN`.
+
+**Weather** is a Home card for Lillington from the National Weather Service. Frost, freeze, heat, and storm notes are written for the birds, and the same notes are in the morning digest.
+
+**Upkeep** is the house, the truck, and the tractor, by days, hours, or miles. Marking one done logs the service and moves the next date. Due dates are on the calendar.
+
+**Documents** stores a name, category, owner, expiration, and a link. Upload puts the file in Drive and keeps the link. Do not type policy numbers or account numbers.
+
+**Wins** is the shared view of goals. Hitting a goal amount, or finishing its milestones, records a win and plays a short celebration.
+
+## Script properties and triggers
+
+| Property | Required | What it is |
+| --- | --- | --- |
+| `ACCESS_CODE` | Yes | The code both phones type |
+| `IMPORT_KEY` | For bank import | A different secret for Roo or SimpleFIN. Not the access code |
+| `SIMPLEFIN_ACCESS_URL` | No | SimpleFIN access URL, only if you are not pushing transactions yourself |
+| `SMARTTHINGS_TOKEN` | For house controls and laundry | Personal access token |
+| `BLINK_EMAIL`, `BLINK_PASSWORD` | No | Experimental cameras |
+| `DIGEST_EMAILS` | No | Used if Settings has no addresses yet |
+| `GOOGLE_CALENDAR_ID` | No | Fallback calendar id |
+
+After you add a property, deploy a **new version** of the web app (Deploy → Manage deployments → pencil → Version: New version). The `/exec` address stays the same.
+
+Then in the script editor choose **installTriggers** and click **Run** once. That replaces these timers:
+
+- `familyDigest` every morning at the digest hour
+- `billReminders` the same hour, for bills and expiring documents
+- `weeklyMoney` Sunday at 6pm
+- `simplefinDaily` at 5am (it does nothing if the SimpleFIN URL is empty)
+- `laundryWatch` about once an hour
+
+`installDigestTrigger` still works. It runs `installTriggers`.
+
 ## Turn on GitHub Pages
 
 A computer is easier for this part. Do it after this project is merged onto `main`.

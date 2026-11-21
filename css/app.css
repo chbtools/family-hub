@@ -231,6 +231,9 @@ a.countdown, .countdown-in { text-decoration: none; color: inherit; display: fle
   .widget, .edit-tools .btn { scroll-margin-bottom: calc(var(--nav-h) + 16px); }
 }
 .drag-ghost { opacity: 0.55; }
+.confetti { position: fixed; inset: 0; pointer-events: none; z-index: 30; overflow: hidden; }
+.confetti i { position: absolute; top: -12px; width: 8px; height: 14px; border-radius: 2px; animation: fall 1.4s ease-in forwards; }
+@keyframes fall { to { transform: translateY(100vh) rotate(200deg); opacity: 0.15; } }
 .widget .item, .widget .btn { transition: background 0.15s ease, transform 0.15s ease; }
 body:not(.editing) .widget { transition: transform 0.16s ease; }
 @media (hover: hover) {

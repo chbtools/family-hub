@@ -21,10 +21,10 @@
  */
 const COLUMNS = {
   users: ['id', 'name', 'role', 'active', 'createdAt'],
-  settings: ['id', 'randyName', 'partnerName', 'farmName', 'location', 'digestEmails', 'digestHour', 'calendarId', 'calendarSync', 'mileageRate', 'createdAt'],
+  settings: ['id', 'randyName', 'partnerName', 'farmName', 'location', 'digestEmails', 'digestHour', 'calendarId', 'calendarSync', 'mileageRate', 'billLeadDays', 'taxRate', 'eggMargin', 'wearRate', 'createdAt'],
   accounts: ['id', 'name', 'type', 'book', 'balance', 'institution', 'notes', 'updatedAt'],
-  transactions: ['id', 'date', 'accountId', 'amount', 'type', 'categoryId', 'book', 'payee', 'memo', 'refType', 'refId', 'createdBy', 'createdAt'],
-  categories: ['id', 'name', 'book', 'kind', 'monthly', 'sort', 'active'],
+  transactions: ['id', 'date', 'accountId', 'amount', 'type', 'categoryId', 'book', 'payee', 'memo', 'refType', 'refId', 'externalId', 'receiptId', 'createdBy', 'createdAt'],
+  categories: ['id', 'name', 'book', 'kind', 'monthly', 'scheduleF', 'sort', 'active'],
   budgets: ['id', 'categoryId', 'month', 'amount'],
   bills: ['id', 'name', 'payee', 'amount', 'dueDay', 'startMonth', 'book', 'categoryId', 'accountId', 'autopay', 'assignedTo', 'active', 'notes'],
   billPayments: ['id', 'billId', 'dueDate', 'paidDate', 'amount', 'paidBy', 'accountId', 'transactionId'],
@@ -46,7 +46,7 @@ const COLUMNS = {
   customers: ['id', 'name', 'phone', 'email', 'kind', 'notes'],
   jobs: ['id', 'number', 'customerId', 'customerName', 'service', 'status', 'date', 'address', 'description', 'hours', 'rate', 'amount', 'mileage', 'paidDate', 'notes', 'assignedTo', 'transactionId'],
   equipment: ['id', 'name', 'type', 'hours', 'status', 'notes'],
-  serviceLogs: ['id', 'equipmentId', 'date', 'hours', 'what', 'cost', 'notes', 'by'],
+  serviceLogs: ['id', 'equipmentId', 'upkeepId', 'date', 'hours', 'what', 'cost', 'notes', 'by'],
   flock: ['id', 'species', 'breed', 'count', 'acquired', 'status', 'notes'],
   mileage: ['id', 'date', 'vehicle', 'miles', 'hours', 'purpose', 'book', 'jobId', 'notes'],
   trips: ['id', 'name', 'destination', 'startDate', 'endDate', 'departTime', 'travelers', 'budget', 'spent', 'trackMoney', 'notes'],
@@ -54,10 +54,15 @@ const COLUMNS = {
   tripItems: ['id', 'tripId', 'listName', 'kind', 'assignee', 'text', 'done', 'sort'],
   templates: ['id', 'name', 'kind', 'notes'],
   templateItems: ['id', 'templateId', 'text', 'assignee', 'sort'],
-  layouts: ['id', 'userId', 'body', 'updatedAt']
+  layouts: ['id', 'userId', 'body', 'updatedAt'],
+  merchantRules: ['id', 'pattern', 'categoryId', 'book'],
+  routines: ['id', 'name', 'steps', 'active'],
+  upkeep: ['id', 'name', 'kind', 'everyDays', 'everyHours', 'everyMiles', 'lastDate', 'lastReading', 'notes'],
+  docs: ['id', 'name', 'category', 'owner', 'expires', 'link', 'notes'],
+  wins: ['id', 'goalId', 'title', 'date', 'note']
 };
 
-const NUMERIC = ['balance', 'amount', 'monthly', 'sort', 'dueDay', 'digestHour', 'mileageRate', 'principal', 'apr', 'payment', 'assets', 'liabilities', 'net', 'targetAmount', 'currentAmount', 'budget', 'spent', 'count', 'dozens', 'price', 'total', 'hours', 'rate', 'mileage', 'miles', 'cost'];
+const NUMERIC = ['balance', 'amount', 'monthly', 'sort', 'dueDay', 'digestHour', 'mileageRate', 'principal', 'apr', 'payment', 'assets', 'liabilities', 'net', 'targetAmount', 'currentAmount', 'budget', 'spent', 'count', 'dozens', 'price', 'total', 'hours', 'rate', 'mileage', 'miles', 'cost', 'billLeadDays', 'taxRate', 'eggMargin', 'wearRate', 'everyDays', 'everyHours', 'everyMiles', 'lastReading'];
 const DATA = Object.keys(COLUMNS);
 
 function doGet() {
@@ -73,6 +78,7 @@ function doPost(e) {
 
 function handle(p) {
   try {
+    if (p.action === 'importTransactions') return importBank(p);
     const denied = authorize(p.code);
     if (denied) return out(denied);
     if (p.action === 'list') return listAll();
@@ -82,6 +88,9 @@ function handle(p) {
     if (p.action === 'blink') return blinkHandle(p);
     if (p.action === 'calendar') return calendarHandle(p);
     if (p.action === 'digest') return out(sendDigest());
+    if (p.action === 'receipt') return receiptHandle(p);
+    if (p.action === 'weather') return out(weatherReport());
+    if (p.action === 'simplefin') return out(simplefinPull());
     return out({ ok: false, error: 'unknown action' });
   } catch (err) {
     return out({ ok: false, error: String(err && err.message || err) });
@@ -468,7 +477,36 @@ function digestText() {
   });
   if (!count) lines.push('- Nothing on the calendar.');
   lines.push('');
-  lines.push('Sent by Family Hub. This email does not include the access code.');
+  lines.push('Budgets this month');
+  const month = day.slice(0, 7);
+  let budgetLines = 0;
+  readAll('categories').forEach(function (cat) {
+    if (cat.kind !== 'expense' || String(cat.active) === 'no' || cat.monthly === '' || Number(cat.monthly) <= 0) return;
+    let spent = 0;
+    readAll('transactions').forEach(function (tx) {
+      if (tx.categoryId !== cat.id || String(tx.date || '').slice(0, 7) !== month || tx.type === 'transfer') return;
+      if (Number(tx.amount) < 0) spent += Math.abs(Number(tx.amount));
+    });
+    const limit = Number(cat.monthly);
+    if (spent < limit * 0.8) return;
+    budgetLines++;
+    lines.push('- ' + (spent >= limit ? 'OVER' : '80%') + '  ' + cat.name + '  ' + moneyText(spent) + ' of ' + moneyText(limit));
+  });
+  if (!budgetLines) lines.push('- No category is at 80% yet.');
+  lines.push('');
+  try {
+    const weather = weatherReport();
+    if (weather && weather.ok) {
+      lines.push('Lillington weather');
+      (weather.periods || []).slice(0, 2).forEach(function (period) {
+        lines.push('- ' + period.name + ': ' + period.temp + '°' + (period.unit || 'F') + '  ' + period.forecast);
+      });
+      (weather.alerts || []).forEach(function (alert) { lines.push('- ALERT  ' + (alert.event || alert.headline)); });
+      (weather.care || []).forEach(function (note) { lines.push('- ' + note); });
+      lines.push('');
+    }
+  } catch (weatherErr) {}
+  lines.push('Sent by Family Hub. This email does not include the access code or the import key.');
   return lines.join('\n');
 }
 
@@ -495,13 +533,21 @@ function digestHour() {
   return h;
 }
 
-/** Run once from the editor. Replaces any older Family Hub digest trigger. Does not change the web app URL. */
-function installDigestTrigger() {
+/** Run once from the editor. Installs the daily digest, bill reminders, Sunday money note, SimpleFIN pull, and laundry check. Does not change the web app URL. */
+function installTriggers() {
+  const names = { familyDigest: 1, billReminders: 1, weeklyMoney: 1, simplefinDaily: 1, laundryWatch: 1 };
   ScriptApp.getProjectTriggers().forEach(function (t) {
-    if (t.getHandlerFunction() === 'familyDigest') ScriptApp.deleteTrigger(t);
+    if (names[t.getHandlerFunction()]) ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('familyDigest').timeBased().everyDays(1).atHour(digestHour()).create();
+  ScriptApp.newTrigger('billReminders').timeBased().everyDays(1).atHour(digestHour()).create();
+  ScriptApp.newTrigger('weeklyMoney').timeBased().onWeekDay(ScriptApp.WeekDay.SUNDAY).atHour(18).create();
+  ScriptApp.newTrigger('simplefinDaily').timeBased().everyDays(1).atHour(5).create();
+  ScriptApp.newTrigger('laundryWatch').timeBased().everyHours(1).create();
 }
+
+/** Older name. Runs installTriggers. */
+function installDigestTrigger() { installTriggers(); }
 
 function calendarId() {
   const settings = readDoc('settings', 'hub') || {};
@@ -1049,4 +1095,274 @@ function blinkThumbnail(networkId, cameraId) {
   if (!bytes || bytes.length < 20 || bytes.length > 400000) return { ok: false, experimental: true, error: 'That thumbnail was empty or too large.' };
   const mime = String(res.type || 'image/jpeg').indexOf('image/') === 0 ? res.type : 'image/jpeg';
   return { ok: true, experimental: true, dataUrl: 'data:' + mime + ';base64,' + Utilities.base64Encode(bytes) };
+}
+
+/* Bank import for Roo or any helper. The household access code is not accepted here.
+   Set IMPORT_KEY in Script properties. Amounts are signed: negative is money out. */
+function importBank(p) {
+  const expected = String(PropertiesService.getScriptProperties().getProperty('IMPORT_KEY') || '').trim();
+  if (!expected || String(p.key || '') !== expected) return out({ ok: false, error: 'unauthorized' });
+  const rows = Array.isArray(p.transactions) ? p.transactions : [];
+  if (!rows.length || rows.length > 200) return out({ ok: false, error: 'Send 1 to 200 transactions.' });
+  const lock = LockService.getScriptLock();
+  lock.waitLock(25000);
+  try { return out(importBankLocked(rows)); }
+  finally { lock.releaseLock(); }
+}
+
+function importBankLocked(rows) {
+  ensureBaseline();
+  const seen = {};
+  readAll('transactions').forEach(function (tx) { if (tx.externalId) seen[String(tx.externalId)] = true; });
+  const rules = readAll('merchantRules');
+  const accounts = readAll('accounts');
+  let added = 0;
+  const skipped = [];
+  rows.forEach(function (row) {
+    const externalId = String(row.externalId || '').trim();
+    if (!externalId || seen[externalId]) { skipped.push(externalId); return; }
+    const date = String(row.date || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { skipped.push(externalId); return; }
+    const amount = Math.round((Number(String(row.amount).replace(/[$,]/g, '')) + 1e-9) * 100) / 100;
+    if (!isFinite(amount) || !amount) { skipped.push(externalId); return; }
+    const merchant = String(row.merchant || row.description || 'Bank').slice(0, 120);
+    const rule = matchBankRule(rules, merchant);
+    const book = rule && rule.book === 'Farm' ? 'Farm' : 'Personal';
+    const accountId = matchAccount(accounts, row.account, book);
+    const id = ('imp_' + externalId).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40);
+    if (id.length < 4) { skipped.push(externalId); return; }
+    seen[externalId] = true;
+    writeDoc('transactions', id, {
+      date: date, accountId: accountId, amount: amount, type: amount < 0 ? 'expense' : 'income',
+      categoryId: rule ? rule.categoryId || '' : '', book: book, payee: merchant, memo: 'Imported',
+      refType: 'import', refId: '', externalId: externalId, receiptId: '', createdBy: 'import', createdAt: new Date().toISOString()
+    });
+    if (accountId) {
+      const acct = readDoc('accounts', accountId);
+      if (acct) writeDoc('accounts', accountId, Object.assign(acct, { balance: Math.round((Number(acct.balance || 0) + amount) * 100) / 100, updatedAt: todayIso() }));
+    }
+    added++;
+  });
+  return { ok: true, added: added, skipped: skipped.length };
+}
+
+function matchBankRule(rules, merchant) {
+  const text = String(merchant || '').toLowerCase();
+  let best = null;
+  rules.forEach(function (rule) {
+    const pattern = String(rule.pattern || '').toLowerCase();
+    if (!pattern || text.indexOf(pattern) < 0) return;
+    if (!best || pattern.length > String(best.pattern).length) best = rule;
+  });
+  return best;
+}
+
+function matchAccount(accounts, name, book) {
+  const want = String(name || '').toLowerCase();
+  let fallback = '';
+  for (let i = 0; i < accounts.length; i++) {
+    const acct = accounts[i];
+    if (want && String(acct.name || '').toLowerCase().indexOf(want) >= 0) return acct.id;
+    if (!fallback && acct.book === book && acct.type === 'checking') fallback = acct.id;
+  }
+  return fallback || (accounts[0] && accounts[0].id) || '';
+}
+
+function simplefinDaily() {
+  try { simplefinPull(); } catch (err) {}
+}
+
+function simplefinPull() {
+  const url = String(PropertiesService.getScriptProperties().getProperty('SIMPLEFIN_ACCESS_URL') || '').trim();
+  if (!url) return { ok: true, skipped: true, error: 'SIMPLEFIN_ACCESS_URL is not set.' };
+  const start = Math.floor(Date.now() / 1000) - 10 * 86400;
+  const join = url.indexOf('?') >= 0 ? '&' : '?';
+  const res = UrlFetchApp.fetch(url + join + 'start-date=' + start, { muteHttpExceptions: true, headers: { Accept: 'application/json' } });
+  if (res.getResponseCode() >= 300) return { ok: false, error: 'SimpleFIN returned ' + res.getResponseCode() + '.' };
+  let json = {};
+  try { json = JSON.parse(res.getContentText() || '{}'); } catch (e) { return { ok: false, error: 'SimpleFIN did not return JSON.' }; }
+  const batch = [];
+  (json.accounts || []).forEach(function (account) {
+    (account.transactions || []).forEach(function (tx) {
+      const posted = Number(tx.posted || tx.transacted_at || 0);
+      const date = posted ? Utilities.formatDate(new Date(posted * 1000), Session.getScriptTimeZone() || 'America/New_York', 'yyyy-MM-dd') : '';
+      batch.push({ date: date, amount: tx.amount, merchant: tx.description || tx.payee || '', account: account.name || '', externalId: String(tx.id || '') });
+    });
+  });
+  if (!batch.length) return { ok: true, added: 0 };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(25000);
+  try { return importBankLocked(batch); }
+  finally { lock.releaseLock(); }
+}
+
+function receiptFolder() {
+  const props = PropertiesService.getScriptProperties();
+  const key = 'RECEIPT_FOLDER_ID';
+  const id = props.getProperty(key);
+  if (id) {
+    try {
+      const existing = DriveApp.getFolderById(id);
+      if (existing && !existing.isTrashed()) return existing;
+    } catch (err) {}
+  }
+  const created = DriveApp.createFolder('Family Hub Receipts');
+  props.setProperty(key, created.getId());
+  return created;
+}
+
+function receiptHandle(p) {
+  try {
+    const raw = String(p.dataUrl || '');
+    const comma = raw.indexOf(',');
+    const b64 = comma >= 0 ? raw.slice(comma + 1) : raw;
+    if (!b64) return out({ ok: false, error: 'empty photo' });
+    const bytes = Utilities.base64Decode(b64);
+    if (bytes.length > 1500000) return out({ ok: false, error: 'Photo is too large. Retake it a little farther away.' });
+    const blob = Utilities.newBlob(bytes, 'image/jpeg', 'receipt.jpg');
+    const file = receiptFolder().createFile(blob);
+    let text = '';
+    try {
+      const resource = { title: 'Family Hub receipt OCR', mimeType: MimeType.GOOGLE_DOCS };
+      const doc = Drive.Files.insert(resource, blob, { ocr: true, ocrLanguage: 'en' });
+      text = DocumentApp.openById(doc.id).getBody().getText() || '';
+      DriveApp.getFileById(doc.id).setTrashed(true);
+    } catch (ocrErr) {
+      text = '';
+    }
+    const guess = guessReceipt(text);
+    return out({ ok: true, driveFileId: file.getId(), link: file.getUrl(), amount: guess.amount, date: guess.date, merchant: guess.merchant, ocr: text ? true : false });
+  } catch (err) {
+    return out({ ok: false, error: String(err && err.message || err) });
+  }
+}
+
+function guessReceipt(text) {
+  const amounts = [];
+  String(text || '').replace(/\$?\s*(\d{1,5}\.\d{2})/g, function (_, n) { amounts.push(Number(n)); return _; });
+  amounts.sort(function (a, b) { return b - a; });
+  const dateMatch = String(text || '').match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+  let date = '';
+  if (dateMatch) {
+    const year = dateMatch[3].length === 2 ? '20' + dateMatch[3] : dateMatch[3];
+    date = year + '-' + ('0' + dateMatch[1]).slice(-2) + '-' + ('0' + dateMatch[2]).slice(-2);
+  }
+  const merchant = String(text || '').split(/\n/).map(function (line) { return line.trim(); }).filter(Boolean)[0] || '';
+  return { amount: amounts.length ? amounts[0] : '', date: date, merchant: merchant.slice(0, 80) };
+}
+
+function billLeadDays() {
+  const row = readDoc('settings', 'hub') || {};
+  let n = parseInt(row.billLeadDays, 10);
+  if (!isFinite(n) || n < 0 || n > 30) n = 3;
+  return n;
+}
+
+function billReminders() {
+  const to = digestRecipients();
+  if (!to.length) return;
+  const day = todayIso();
+  const lead = billLeadDays();
+  const payments = readAll('billPayments');
+  const props = PropertiesService.getScriptProperties();
+  const lines = [];
+  readAll('bills').forEach(function (bill) {
+    if (String(bill.active) === 'no') return;
+    const due = openCycle(bill, payments, day);
+    if (!due) return;
+    const days = diffDays(day, due);
+    if (days < 0 || days > lead) return;
+    const key = 'billmail:' + bill.id + ':' + due;
+    if (props.getProperty(key)) return;
+    props.setProperty(key, day);
+    lines.push('- ' + bill.name + '  ' + moneyText(bill.amount) + '  due ' + due + (days === 0 ? ' (today)' : ' (in ' + days + ' days)'));
+  });
+  readAll('docs').forEach(function (doc) {
+    if (!doc.expires) return;
+    const days = diffDays(day, doc.expires);
+    if (days < 0 || days > lead) return;
+    const key = 'docmail:' + doc.id + ':' + doc.expires;
+    if (props.getProperty(key)) return;
+    props.setProperty(key, day);
+    lines.push('- Document  ' + doc.name + '  expires ' + doc.expires);
+  });
+  if (!lines.length) return;
+  MailApp.sendEmail(to.join(','), 'Family Hub reminders', 'Coming up:\n\n' + lines.join('\n') + '\n\nSent by Family Hub.');
+}
+
+function weeklyMoney() {
+  const to = digestRecipients();
+  if (!to.length) return;
+  const day = todayIso();
+  const month = day.slice(0, 7);
+  let personalIn = 0, personalOut = 0, farmIn = 0, farmOut = 0;
+  readAll('transactions').forEach(function (tx) {
+    if (String(tx.date || '').slice(0, 7) !== month || tx.type === 'transfer') return;
+    const amount = Number(tx.amount) || 0;
+    const farm = tx.book === 'Farm';
+    if (amount >= 0) { if (farm) farmIn += amount; else personalIn += amount; }
+    else if (farm) farmOut += Math.abs(amount); else personalOut += Math.abs(amount);
+  });
+  const body = [
+    'Family Hub week in money — ' + day, '',
+    'This month so far',
+    'Home in ' + moneyText(personalIn) + '   out ' + moneyText(personalOut),
+    'Farm in ' + moneyText(farmIn) + '   out ' + moneyText(farmOut), '',
+    digestText()
+  ].join('\n');
+  MailApp.sendEmail(to.join(','), 'Family Hub weekly money', body);
+}
+
+function laundryWatch() {
+  const token = String(PropertiesService.getScriptProperties().getProperty('SMARTTHINGS_TOKEN') || '').trim();
+  if (!token) return;
+  const list = stList(token);
+  if (!list || !list.ok) return;
+  const props = PropertiesService.getScriptProperties();
+  const finished = [];
+  (list.devices || []).forEach(function (device) {
+    if (device.kind !== 'washer' && device.kind !== 'dryer') return;
+    const state = String(device.status.washerState || device.status.dryerState || '');
+    const key = 'laundry:' + device.id;
+    const prev = String(props.getProperty(key) || '');
+    props.setProperty(key, state);
+    const wasRunning = /run|pause|wash|dry|rinse|spin|weight/i.test(prev);
+    const isDone = /stop|finish|end|none|ready|cooled/i.test(state);
+    if (prev && wasRunning && isDone) finished.push(device.name || 'Laundry');
+  });
+  if (!finished.length) return;
+  const to = digestRecipients();
+  if (!to.length) return;
+  MailApp.sendEmail(to.join(','), 'Laundry is done', finished.join(' and ') + ' finished.\n\nSent by Family Hub.');
+}
+
+function weatherReport() {
+  const lat = 35.399;
+  const lon = -78.815;
+  const headers = { Accept: 'application/geo+json', 'User-Agent': 'FamilyHub (chbtools/family-hub)' };
+  const point = UrlFetchApp.fetch('https://api.weather.gov/points/' + lat + ',' + lon, { muteHttpExceptions: true, headers: headers });
+  if (point.getResponseCode() >= 300) return { ok: false, error: 'Weather service returned ' + point.getResponseCode() + '.' };
+  const pointJson = JSON.parse(point.getContentText() || '{}');
+  const forecastUrl = pointJson.properties && pointJson.properties.forecast;
+  if (!forecastUrl) return { ok: false, error: 'No forecast for Lillington.' };
+  const forecast = UrlFetchApp.fetch(forecastUrl, { muteHttpExceptions: true, headers: headers });
+  const forecastJson = JSON.parse(forecast.getContentText() || '{}');
+  const periods = ((forecastJson.properties && forecastJson.properties.periods) || []).slice(0, 4).map(function (period) {
+    return { name: period.name, temp: period.temperature, unit: period.temperatureUnit || 'F', forecast: period.shortForecast, wind: period.windSpeed };
+  });
+  let alerts = [];
+  try {
+    const alertRes = UrlFetchApp.fetch('https://api.weather.gov/alerts/active?point=' + lat + ',' + lon, { muteHttpExceptions: true, headers: headers });
+    const alertJson = JSON.parse(alertRes.getContentText() || '{}');
+    alerts = (alertJson.features || []).slice(0, 5).map(function (feature) {
+      const props = feature.properties || {};
+      return { event: props.event || '', headline: props.headline || '' };
+    });
+  } catch (alertErr) {}
+  const care = [];
+  if (periods.some(function (p) { return Number(p.temp) <= 32; })) care.push('Freeze: check shelter and unfrozen water.');
+  else if (periods.some(function (p) { return Number(p.temp) <= 36; })) care.push('Frost: cover waterers and collect eggs early.');
+  if (periods.some(function (p) { return Number(p.temp) >= 95; })) care.push('Heat: extra water and shade for the birds.');
+  if (alerts.some(function (a) { return /storm|thunder|tornado|wind|hurricane/i.test(String(a.event) + String(a.headline)); })) care.push('Storm: secure the coop and bring tools in.');
+  return { ok: true, place: 'Lillington, NC', periods: periods, alerts: alerts, care: care };
 }

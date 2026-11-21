@@ -192,6 +192,35 @@ test("dashboard layout keeps hides and fills in new cards", () => {
   assert.equal(chosen[0].show, false);
 });
 
+test("bank rules, egg price, quote, and tax dates", () => {
+  const state = sample();
+  const farm = L.matchRule(state.merchantRules, "SOUTHERN STATES #12");
+  assert.equal(farm.book, "Farm");
+  assert.equal(farm.categoryId, "cat_feed");
+  assert.equal(L.matchRule(state.merchantRules, "Unknown Cafe").book, "Personal");
+  const planned = L.planImport(["abc"], [
+    { externalId: "abc", date: "2026-11-01", amount: -5, merchant: "Food Lion" },
+    { externalId: "new1", date: "2026-11-02", amount: -10, merchant: "Southern States" }
+  ], state.merchantRules);
+  assert.equal(planned.accepted.length, 1);
+  assert.equal(planned.accepted[0].book, "Farm");
+  assert.equal(planned.skipped.length, 1);
+  const prices = L.eggPrices(state, "2026-10-01", "2026-11-30", 50);
+  assert.ok(prices.feedCost > 0);
+  assert.ok(prices.chicken.perDozen > 0);
+  assert.ok(prices.chicken.suggested > prices.chicken.perDozen);
+  const quote = L.jobQuote({ hours: 2, rate: 80, fuel: 15, miles: 10, mileageRate: 0.76, wearRate: 8 });
+  assert.equal(quote.total, L.round2(160 + 15 + 7.6 + 16));
+  assert.equal(L.farmTax(1000, 15), 150);
+  assert.equal(L.farmTax(-20, 15), 0);
+  assert.deepEqual(L.quarterDates(2026), ["2026-04-15", "2026-06-15", "2026-09-15", "2027-01-15"]);
+  const hvac = state.upkeep.find((row) => row.id === "up_hvac");
+  assert.equal(L.upkeepView(hvac, "2026-11-21").status, "soon");
+  assert.ok(L.weatherCare({ periods: [{ temp: 30 }], alerts: [] }).length);
+  const lines = L.scheduleF(state, "2026");
+  assert.ok(lines.some((line) => line.line === "16" && line.kind === "expense"));
+});
+
 test("Code.gs collections match the client schema", () => {
   const src = fs.readFileSync(path.join(__dirname, "..", "Code.gs"), "utf8");
   const block = src.slice(src.indexOf("const COLUMNS"), src.indexOf("const NUMERIC"));

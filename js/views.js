@@ -124,6 +124,13 @@
       }).join(" ") || '<p class="empty">No devices yet.</p>';
       return widgetShell(id, item.size, "devices", '<div class="row wrap">' + devices + "</div>" + (App.deviceNote === "demo" ? '<p class="meta">Sample devices. Nothing is sent to the house.</p>' : ""));
     }
+    if (id === "weather") return widgetShell(id, item.size, "weather", weatherBody());
+    if (id === "upkeep") return widgetShell(id, item.size, "upkeep", upkeepBody(true));
+    if (id === "routines") return widgetShell(id, item.size, "routines", routinesBody(true));
+    if (id === "wins") return widgetShell(id, item.size, "wins", winsBody(true));
+    if (id === "prices") return widgetShell(id, item.size, "farm/prices", pricesBody(true));
+    if (id === "tax") return widgetShell(id, item.size, "tax", taxBody(true));
+    if (id === "docs") return widgetShell(id, item.size, "docs", docsBody(true));
     return "";
   }
 
@@ -185,7 +192,7 @@
       return '<button class="btn' + (book === name ? " primary" : "") + '" type="button" data-act="book" data-book="' + name + '">' + name + "</button>";
     }).join(" ");
     return (forceBook ? farmNav() : moneyNav()) + head(forceBook ? "Farm expenses and income" : "Transactions", "Tag each one Personal or Farm.") +
-      '<div class="row wrap"><label class="field"><span>Month</span><input id="monthPick" type="month" value="' + U().esc(month) + '"></label>' + books + '<button class="primary" type="button" data-act="add-tx" data-book="' + U().esc(forceBook || "Personal") + '">Add</button><button class="btn" type="button" data-act="pick-csv">Import CSV</button></div>' +
+      '<div class="row wrap"><label class="field"><span>Month</span><input id="monthPick" type="month" value="' + U().esc(month) + '"></label>' + books + '<button class="primary" type="button" data-act="add-tx" data-book="' + U().esc(forceBook || "Personal") + '">Add</button><button class="btn" type="button" data-act="pick-csv">Import CSV</button><button class="btn" type="button" data-act="snap-receipt">Snap receipt</button></div>' +
       '<form class="search-box" data-act="noop"><input id="txQuery" placeholder="Search payee or memo" value="' + U().esc(App.txQuery || "") + '"></form>' +
       '<div class="list">' + list + "</div>";
   }
@@ -295,7 +302,7 @@
     const rows = (App.state.jobs || []).slice().sort(function (a, b) { return String(b.date).localeCompare(String(a.date)); }).map(function (job) {
       return '<a class="item" href="#farm/job/' + U().esc(job.id) + '" data-go="farm/job/' + U().esc(job.id) + '"><div class="grow"><strong>' + U().esc(job.number || "Job") + " · " + U().esc(job.customerName || "Customer") + "</strong><p class=\"meta\">" + U().esc(L.serviceName(job.service)) + " · " + U().esc(U().shortDate(job.date)) + "</p></div><div>" + U().chip(job.status, job.status === "paid" ? "ok" : job.status === "invoiced" ? "soon" : "farm") + "<div class=\"right\">" + U().esc(L.money(job.amount)) + "</div></div></a>";
     }).join("") || '<p class="empty">No jobs yet.</p>';
-    return farmNav() + head("Tractor jobs", "Driveways, bush hogging, grading, brush, and stumps.") + '<p><button class="primary" type="button" data-act="add-job">New job or quote</button></p><div class="list">' + rows + "</div>";
+    return farmNav() + head("Tractor jobs", "Driveways, bush hogging, grading, brush, and stumps.") + '<p><button class="primary" type="button" data-act="add-job">New job or quote</button> <button class="btn" type="button" data-act="open-quote">Quote calculator</button></p><div class="list">' + rows + "</div>";
   }
 
   function jobDetail(id) {
@@ -665,6 +672,128 @@
       lists;
   }
 
+  function weatherNow() {
+    if (App.weather && App.weather.periods) return App.weather;
+    const periods = [{ name: "Today", temp: 58, unit: "F", forecast: "Sunny" }, { name: "Tonight", temp: 34, unit: "F", forecast: "Clear and cold" }];
+    const report = { place: "Lillington, NC", periods: periods, alerts: [], sample: true };
+    report.care = Logic().weatherCare(report);
+    return report;
+  }
+
+  function weatherBody() {
+    const report = weatherNow();
+    const rows = (report.periods || []).slice(0, 3).map(function (period) {
+      return "<p><strong>" + U().esc(period.name) + "</strong> " + U().esc(period.temp) + "°" + U().esc(period.unit || "F") + " · " + U().esc(period.forecast || "") + "</p>";
+    }).join("");
+    const alerts = (report.alerts || []).map(function (alert) { return "<p>" + U().chip(alert.event || "Alert", "over") + " " + U().esc(alert.headline || "") + "</p>"; }).join("");
+    const care = (report.care || []).map(function (note) { return "<p>" + U().esc(note) + "</p>"; }).join("");
+    return (report.sample ? '<p class="meta">Sample forecast for Lillington. The live card uses the National Weather Service.</p>' : "") + rows + alerts + care;
+  }
+
+  function weatherPage() {
+    return head("Weather", "Lillington, NC") + '<article class="card">' + weatherBody() + '</article><p><button class="btn" type="button" data-act="refresh-weather">Refresh forecast</button></p>';
+  }
+
+  function upkeepBody(compact) {
+    const L = Logic();
+    const day = L.today();
+    const rows = (App.state.upkeep || []).map(function (item) {
+      const view = L.upkeepView(item, day);
+      return '<div class="item"><div class="grow"><strong>' + U().esc(item.name) + "</strong><p class=\"meta\">" + U().esc(item.kind) + (view.due ? " · " + U().esc(U().shortDate(view.due)) : "") + (view.next !== "" ? " · next " + U().esc(view.next) : "") + "</p></div>" + U().chip(view.status, view.status === "overdue" ? "over" : view.status === "soon" ? "soon" : "ok") + (compact ? "" : '<button class="btn" type="button" data-act="log-upkeep" data-id="' + U().esc(item.id) + '">Done</button>') + "</div>";
+    }).join("");
+    return '<div class="list">' + (rows || '<p class="empty">Nothing on the maintenance list.</p>') + "</div>";
+  }
+
+  function upkeepPage() {
+    return head("Upkeep", "House, truck, and tractor. Due dates show on the calendar.") + '<p><button class="primary" type="button" data-act="add-upkeep">Add reminder</button></p>' + upkeepBody(false);
+  }
+
+  function routinesBody(compact) {
+    const rows = (App.state.routines || []).filter(function (scene) { return scene.active !== "no"; }).map(function (scene) {
+      return '<button class="btn" type="button" data-act="run-routine" data-id="' + U().esc(scene.id) + '">' + U().esc(scene.name) + "</button>";
+    }).join(" ");
+    return '<div class="row wrap">' + (rows || '<p class="empty">No scenes yet.</p>') + "</div>" + (compact ? '<p class="meta">Asks before it changes the house.</p>' : "");
+  }
+
+  function routinesPage() {
+    return head("Routines", "One tap runs the saved SmartThings steps, and Blink if that scene includes it. You confirm first.") + '<p><button class="primary" type="button" data-act="add-routine">Add scene</button></p>' + routinesBody(false);
+  }
+
+  function winsBody(compact) {
+    const L = Logic();
+    const goals = (App.state.goals || []).filter(function (goal) { return goal.status !== "done" || true; }).slice(0, compact ? 3 : 12);
+    const bars = goals.map(function (goal) {
+      const stones = (App.state.milestones || []).filter(function (item) { return item.goalId === goal.id; });
+      const pct = L.goalProgress(goal, stones);
+      return "<p><strong>" + U().esc(goal.name) + "</strong> · " + U().esc(L.userName(App.state, goal.owner)) + " " + Math.round(pct * 100) + "%" + U().bar(pct, pct >= 1 ? "ok" : "") + "</p>";
+    }).join("");
+    const history = (App.state.wins || []).slice().sort(function (a, b) { return String(b.date).localeCompare(String(a.date)); }).slice(0, compact ? 2 : 20).map(function (win) {
+      return '<div class="item"><div class="grow"><strong>' + U().esc(win.title) + '</strong><p class="meta">' + U().esc(U().shortDate(win.date)) + "</p></div></div>";
+    }).join("");
+    return bars + '<div class="list">' + history + "</div>";
+  }
+
+  function winsPage() {
+    return head("Wins", "Shared progress for both of you.") + winsBody(false);
+  }
+
+  function pricesBody() {
+    const L = Logic();
+    const day = L.today();
+    const settings = (App.state.settings || [])[0] || {};
+    const prices = L.eggPrices(App.state, L.addDays(day, -30), day, settings.eggMargin);
+    return ["duck", "chicken", "quail"].map(function (species) {
+      const row = prices[species];
+      return "<p><strong>" + species + "</strong> · " + U().esc(L.money(row.perDozen)) + "/doz cost · suggest " + U().esc(L.money(row.suggested)) + "</p>";
+    }).join("") + '<p class="meta">Feed over 30 days ' + U().esc(L.money(prices.feedCost)) + ", margin " + U().esc(prices.margin) + "%.</p>";
+  }
+
+  function pricesPage() {
+    return farmNav() + head("Egg prices", "Cost per dozen from feed spending and the eggs you logged. The suggestion adds your margin.") + '<article class="card">' + pricesBody() + "</article>";
+  }
+
+  function taxBody() {
+    const L = Logic();
+    const year = String(L.today()).slice(0, 4);
+    const settings = (App.state.settings || [])[0] || {};
+    const rate = settings.taxRate === "" || settings.taxRate == null ? 15 : settings.taxRate;
+    const pl = L.farmPL(App.state, year);
+    const tax = L.farmTax(pl.profit, rate);
+    const lines = L.scheduleF(App.state, year).map(function (line) {
+      return "<p>Line " + U().esc(line.line) + " · " + U().esc(line.kind) + " · " + U().esc(L.money(line.amount)) + "</p>";
+    }).join("") || "<p>No farm lines yet.</p>";
+    return '<p><strong>' + U().esc(L.money(tax)) + "</strong> estimated on " + U().esc(L.money(pl.profit)) + " farm profit at " + U().esc(rate) + "%.</p>" + lines;
+  }
+
+  function taxPage() {
+    return head("Quarterly tax", "A planning estimate, not a filing. Due dates are on the calendar: April 15, June 15, September 15, and January 15.") +
+      '<article class="card">' + taxBody() + '</article><p><button class="btn" type="button" data-act="export-schedule-f">Schedule F CSV</button></p>';
+  }
+
+  function docsBody(compact) {
+    const L = Logic();
+    const day = L.today();
+    const rows = (App.state.docs || []).slice(0, compact ? 4 : 40).map(function (doc) {
+      const soon = doc.expires && doc.expires <= L.addDays(day, 30);
+      return '<div class="item"><div class="grow"><strong>' + U().esc(doc.name) + "</strong><p class=\"meta\">" + U().esc(doc.category) + (doc.expires ? " · " + U().esc(U().shortDate(doc.expires)) : "") + "</p></div>" + (soon ? U().chip("Soon", "soon") : "") + (doc.link ? '<a class="btn" href="' + U().esc(doc.link) + '" target="_blank" rel="noopener">Open</a>' : "") + "</div>";
+    }).join("");
+    return '<div class="list">' + (rows || '<p class="empty">No documents yet.</p>') + "</div>";
+  }
+
+  function docsPage() {
+    return head("Documents", "Links and expiration dates only. Do not put account numbers or policy numbers in the notes.") + '<p><button class="primary" type="button" data-act="add-doc">Add document</button> <button class="btn" type="button" data-act="upload-doc">Upload a file</button></p>' + docsBody(false);
+  }
+
+  function rulesPage() {
+    const L = Logic();
+    const rows = (App.state.merchantRules || []).map(function (rule) {
+      const cat = L.byId(App.state.categories, rule.categoryId);
+      return '<div class="item"><div class="grow"><strong>' + U().esc(rule.pattern) + "</strong><p class=\"meta\">" + U().esc((cat && cat.name) || "Uncategorized") + " · " + U().esc(rule.book) + "</p></div></div>";
+    }).join("") || '<p class="empty">No merchant rules yet. Imports stay Personal until you add one.</p>';
+    return moneyNav() + head("Bank rules", "When a transaction is imported, the longest matching merchant name sets the category and Personal or Farm.") +
+      '<p><button class="primary" type="button" data-act="add-rule">Add rule</button></p><div class="list">' + rows + "</div>";
+  }
+
   function more() {
     const tiles = [
       ["plan/calendar", "Calendar", "Month, week, and agenda"],
@@ -672,6 +801,13 @@
       ["plan/goals", "Goals", "Shared and personal"],
       ["plan/projects", "Projects", "Home and farm tasks"],
       ["devices", "House", "Thermostats, TV, laundry"],
+      ["routines", "Routines", "Away, home, bedtime"],
+      ["upkeep", "Upkeep", "House, truck, tractor"],
+      ["docs", "Documents", "Links and expiration dates"],
+      ["wins", "Wins", "Goals you have hit"],
+      ["farm/prices", "Egg prices", "Cost per dozen"],
+      ["tax", "Quarterly tax", "Farm estimate"],
+      ["money/rules", "Bank rules", "Merchant categories"],
       ["settings", "Settings", "Names, backup, digest"],
       ["search", "Search", "Find a bill, job, or list"]
     ];
@@ -696,6 +832,11 @@
       U().select("Calendar sync", "calendarSync", row.calendarSync || "off", [["off", "Off"], ["push", "Push Family Hub to Google"], ["both", "Both ways"]]) +
       U().field("Mileage rate override", "mileageRate", row.mileageRate || "") +
       '<p class="meta">Leave the rate blank to use the 2026 IRS business rates: 72.5¢ per mile through June 30 and 76¢ after that. A number here replaces both.</p>' +
+      U().field("Bill reminder, days ahead", "billLeadDays", row.billLeadDays === "" || row.billLeadDays == null ? 3 : row.billLeadDays, "number") +
+      U().field("Farm tax estimate %", "taxRate", row.taxRate === "" || row.taxRate == null ? 15 : row.taxRate, "number") +
+      U().field("Egg price margin %", "eggMargin", row.eggMargin === "" || row.eggMargin == null ? 50 : row.eggMargin, "number") +
+      U().field("Equipment wear $ per hour", "wearRate", row.wearRate === "" || row.wearRate == null ? 8 : row.wearRate, "number") +
+      '<p><button class="btn" type="button" data-act="enable-notifications">Allow phone notifications</button></p>' +
       '<button class="primary" type="submit">Save settings</button></form>' +
       '<form class="card stack" data-act="save-url"><h3>Google Sheet</h3>' +
       U().field("Web app URL", "url", (function () { try { return localStorage.getItem("hub-script-url") || ""; } catch (e) { return ""; } })()) +
@@ -730,6 +871,7 @@
     if (route === "money/budgets") return budgets();
     if (route === "money/debts") return debts();
     if (route === "money/subs") return subs();
+    if (route === "money/rules") return rulesPage();
     if (route === "farm") return farm();
     if (route === "farm/eggs") return eggs();
     if (route === "farm/sales" || route === "farm/customers") return route === "farm/customers" ? customers(false) : sales();
@@ -740,6 +882,7 @@
     if (route === "farm/flock") return flock();
     if (route === "farm/mileage") return mileage();
     if (route === "farm/pl") return profit();
+    if (route === "farm/prices") return pricesPage();
     if (route === "today") return agenda();
     if (route === "today/chores") return chores();
     if (route === "today/meals") return meals();
@@ -751,6 +894,12 @@
     if (route === "plan/projects") return projects();
     if (route.indexOf("plan/project/") === 0) return project(route.slice("plan/project/".length));
     if (route === "devices") return devices();
+    if (route === "routines") return routinesPage();
+    if (route === "upkeep") return upkeepPage();
+    if (route === "docs") return docsPage();
+    if (route === "wins") return winsPage();
+    if (route === "tax") return taxPage();
+    if (route === "weather") return weatherPage();
     if (route === "settings") return settings();
     if (route === "search") return search();
     if (route === "more") return more();
