@@ -167,7 +167,7 @@
     }];
     const accounts = (App.state.accounts || []).map(function (acct) {
       const owed = acct.type === "loan" || acct.type === "credit";
-      return '<div class="item"><div class="grow"><strong>' + U().esc(acct.name) + "</strong><p class=\"meta\">" + U().esc(acct.institution || acct.type) + " · " + U().chip(acct.book || "Personal", acct.book === "Farm" ? "farm" : "personal") + "</p></div>" + U().amt(owed ? -L.num(acct.balance) : acct.balance) + "</div>";
+      return '<div class="item"><div class="grow"><strong>' + U().esc(acct.name) + "</strong><p class=\"meta\">" + U().esc(acct.institution || acct.type) + " · " + U().chip(acct.book || "Personal", acct.book === "Farm" ? "farm" : "personal") + (acct.source === "bank" ? U().chip("Bank", "ok") : "") + "</p></div>" + U().amt(owed ? -L.num(acct.balance) : acct.balance) + "</div>";
     }).join("") || '<p class="empty">No accounts yet.</p>';
     return moneyNav() + head("Money", "Personal and farm stay tagged on every transaction.") +
       '<div class="stats"><div class="stat"><span>Net worth</span><strong>' + U().esc(L.money(net.net)) + '</strong></div><div class="stat"><span>Assets</span><strong>' + U().esc(L.money(net.assets)) + '</strong></div><div class="stat"><span>Owed</span><strong>' + U().esc(L.money(net.liabilities)) + '</strong></div><div class="stat"><span>' + U().esc(month) + ' left</span><strong>' + U().esc(L.money(flow.personalIn + flow.farmIn - flow.personalOut - flow.farmOut)) + "</strong></div></div>" +

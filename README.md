@@ -58,6 +58,30 @@ Roo, or any helper you trust, can push SECU transactions once a day. The request
 
 The reply looks like `{ "ok": true, "added": 1, "skipped": 0 }`.
 
+Each imported row stores the bank account name in `accountName`. A bank-synced account (see balances below) does not have its balance changed by these rows.
+
+Balances are a separate POST, also with `IMPORT_KEY`. The balance is stored as a positive number. `source` is set to `bank`, so later transaction imports do not add onto that balance. An account is matched by `externalId`, then by the exact name. If it is new, the book is Personal. Transactions with an empty account and the same stored account name are linked to it.
+
+```json
+{
+  "action": "importBalances",
+  "key": "the IMPORT_KEY you saved in Script properties",
+  "accounts": [
+    {
+      "externalId": "secu-acct-00000000-0000-0000-0000-000000000000",
+      "name": "SECU Checking 7135",
+      "type": "checking",
+      "institution": "SECU",
+      "balance": 1234.56
+    }
+  ]
+}
+```
+
+The reply is `{ "ok": true, "created": 1, "updated": 0, "relinked": 0 }`. `type` is `checking` or `savings`.
+
+A CSV from the phone can also be Rocket Money. That export lists spending as a positive amount and income as a negative amount, so the importer flips the sign. Custom Name is the payee, Category is kept, and Note becomes the memo. Rows with Ignored From filled in are skipped. Account Name is used when it matches an account you already have. Any CSV import, including a plain one, skips a row that matches an existing transaction on the same amount to the cent, a date within two days, and a similar payee. The confirm box says how many will be added and how many will be skipped.
+
 Optional: put a SimpleFIN Bridge access URL in the script property `SIMPLEFIN_ACCESS_URL`. The daily trigger reads the last 10 days from that URL and imports them the same way. Leave the property blank if Roo is pushing SECU instead.
 
 ## The other tools

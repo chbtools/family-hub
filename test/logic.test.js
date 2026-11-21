@@ -120,6 +120,37 @@ test("2026 mileage uses the mid-year IRS rates unless a rate is saved", () => {
   assert.equal(L.mileageValue(rows, 0.5).deduction, 10);
 });
 
+test("Rocket Money spending is flipped and duplicates are skipped", () => {
+  const text = [
+    "Date,Original Date,Account Type,Account Name,Account Number,Institution Name,Name,Custom Name,Amount,Description,Category,Note,Ignored From,Tax Deductible,Extra",
+    "11/21/2026,11/19/2026,Checking,SECU Checking 7135,7135,SECU,FOOD LION #12,Food Lion,42.18,GROCERY,Groceries,weekly shop,,,",
+    "11/20/2026,11/20/2026,Checking,SECU Checking 7135,7135,SECU,PAYROLL,Payroll,-2400,PAY,Paycheck,payday,,,",
+    "11/18/2026,11/18/2026,Checking,SECU Checking 7135,7135,SECU,SKIP ME,Skip Me,9.00,X,Other,hidden,manual,,"
+  ].join("\n");
+  const rows = L.importTransactions(text);
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].amount, -42.18);
+  assert.equal(rows[0].payee, "Food Lion");
+  assert.equal(rows[0].memo, "weekly shop");
+  assert.equal(rows[0].category, "Groceries");
+  assert.equal(rows[0].accountName, "SECU Checking 7135");
+  assert.equal(rows[0].institution, "SECU");
+  assert.equal(rows[1].amount, 2400);
+  assert.equal(rows[1].type, "income");
+  const existing = [{ date: "2026-11-20", amount: -42.18, payee: "FOOD LION #12", accountId: "acct_secu", externalId: "secu-abc" }];
+  const accounts = [{ id: "acct_secu", name: "SECU Checking 7135" }];
+  const planned = L.planCsvImport(existing, rows, accounts);
+  assert.equal(planned.accepted.length, 1);
+  assert.equal(planned.accepted[0].payee, "Payroll");
+  assert.equal(planned.skipped.length, 1);
+  const blank = L.planCsvImport(
+    [{ date: "2026-11-01", amount: -5, payee: "", accountId: "acct_secu" }],
+    [{ date: "2026-11-02", amount: -5, payee: "", accountName: "SECU Checking 7135" }],
+    accounts
+  );
+  assert.equal(blank.skipped.length, 1);
+});
+
 test("csv import reads a header row and keeps the farm book", () => {
   const text = "Date,Amount,Payee,Category,Book,Memo\n11/02/2026,-42.50,Southern States,Feed,Farm,scratch\n2026-11-03,18,Market,Egg sales,Personal,\n";
   const rows = L.importTransactions(text);

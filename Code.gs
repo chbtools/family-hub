@@ -23,8 +23,8 @@
 const COLUMNS = {
   users: ['id', 'name', 'role', 'active', 'createdAt'],
   settings: ['id', 'randyName', 'partnerName', 'farmName', 'location', 'digestEmails', 'digestHour', 'calendarId', 'calendarSync', 'mileageRate', 'billLeadDays', 'taxRate', 'eggMargin', 'wearRate', 'createdAt'],
-  accounts: ['id', 'name', 'type', 'book', 'balance', 'institution', 'notes', 'updatedAt'],
-  transactions: ['id', 'date', 'accountId', 'amount', 'type', 'categoryId', 'book', 'payee', 'memo', 'refType', 'refId', 'externalId', 'receiptId', 'createdBy', 'createdAt'],
+  accounts: ['id', 'name', 'type', 'book', 'balance', 'institution', 'notes', 'externalId', 'source', 'updatedAt'],
+  transactions: ['id', 'date', 'accountId', 'amount', 'type', 'categoryId', 'book', 'payee', 'memo', 'refType', 'refId', 'externalId', 'receiptId', 'accountName', 'createdBy', 'createdAt'],
   categories: ['id', 'name', 'book', 'kind', 'monthly', 'scheduleF', 'sort', 'active'],
   budgets: ['id', 'categoryId', 'month', 'amount'],
   bills: ['id', 'name', 'payee', 'amount', 'dueDay', 'startMonth', 'book', 'categoryId', 'accountId', 'autopay', 'assignedTo', 'active', 'notes'],
@@ -81,6 +81,7 @@ function doPost(e) {
 function handle(p) {
   try {
     if (p.action === 'importTransactions') return importBank(p);
+    if (p.action === 'importBalances') return importBalances(p);
     const denied = authorize(p.code);
     if (denied) return out(denied);
     if (p.action === 'list') return listAll();
@@ -1245,22 +1246,96 @@ function importBankLocked(rows) {
     const merchant = String(row.merchant || row.description || 'Bank').slice(0, 120);
     const rule = matchBankRule(rules, merchant);
     const book = rule && rule.book === 'Farm' ? 'Farm' : 'Personal';
-    const accountId = matchAccount(accounts, row.account, book);
+    const accountName = String(row.account || '').trim();
+    const accountId = matchAccount(accounts, accountName, book);
     const id = ('imp_' + externalId).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40);
     if (id.length < 4) { skipped.push(externalId); return; }
     seen[externalId] = true;
     writeDoc('transactions', id, {
       date: date, accountId: accountId, amount: amount, type: amount < 0 ? 'expense' : 'income',
       categoryId: rule ? rule.categoryId || '' : '', book: book, payee: merchant, memo: 'Imported',
-      refType: 'import', refId: '', externalId: externalId, receiptId: '', createdBy: 'import', createdAt: new Date().toISOString()
+      refType: 'import', refId: '', externalId: externalId, receiptId: '', accountName: accountName,
+      createdBy: 'import', createdAt: new Date().toISOString()
     });
     if (accountId) {
       const acct = readDoc('accounts', accountId);
-      if (acct) writeDoc('accounts', accountId, Object.assign(acct, { balance: Math.round((Number(acct.balance || 0) + amount) * 100) / 100, updatedAt: todayIso() }));
+      if (acct && String(acct.source) !== 'bank') {
+        writeDoc('accounts', accountId, Object.assign(acct, { balance: Math.round((Number(acct.balance || 0) + amount) * 100) / 100, updatedAt: new Date().toISOString() }));
+      }
     }
     added++;
   });
   return { ok: true, added: added, skipped: skipped.length };
+}
+
+/* Balances for bank-synced accounts. IMPORT_KEY, same as importTransactions.
+   Balance is stored as a positive number. Later transaction imports do not add onto it. */
+function importBalances(p) {
+  const expected = String(PropertiesService.getScriptProperties().getProperty('IMPORT_KEY') || '').trim();
+  if (!expected || String(p.key || '') !== expected) return out({ ok: false, error: 'unauthorized' });
+  const rows = Array.isArray(p.accounts) ? p.accounts : [];
+  if (!rows.length || rows.length > 50) return out({ ok: false, error: 'Send 1 to 50 accounts.' });
+  const lock = LockService.getScriptLock();
+  lock.waitLock(25000);
+  try { return out(importBalancesLocked(rows)); }
+  finally { lock.releaseLock(); }
+}
+
+function importBalancesLocked(rows) {
+  ensureBaseline();
+  const accounts = readAll('accounts');
+  let created = 0;
+  let updated = 0;
+  let relinked = 0;
+  const now = new Date().toISOString();
+  rows.forEach(function (row) {
+    const externalId = String(row.externalId || '').trim();
+    const name = String(row.name || '').trim();
+    if (!externalId && !name) return;
+    const balance = Math.abs(Number(row.balance));
+    if (!isFinite(balance)) return;
+    const type = row.type === 'savings' ? 'savings' : 'checking';
+    let existing = null;
+    if (externalId) {
+      for (let i = 0; i < accounts.length; i++) if (String(accounts[i].externalId) === externalId) existing = accounts[i];
+    }
+    if (!existing && name) {
+      for (let i = 0; i < accounts.length; i++) if (String(accounts[i].name || '').trim() === name) existing = accounts[i];
+    }
+    const data = {
+      name: name || (existing && existing.name) || 'Bank account',
+      type: type,
+      institution: String(row.institution || (existing && existing.institution) || '').slice(0, 80),
+      balance: Math.round((balance + 1e-9) * 100) / 100,
+      externalId: externalId || (existing && existing.externalId) || '',
+      source: 'bank',
+      updatedAt: now
+    };
+    if (existing) {
+      writeDoc('accounts', existing.id, Object.assign({}, existing, data, { book: existing.book || 'Personal' }));
+      existing.externalId = data.externalId;
+      existing.name = data.name;
+      existing.source = 'bank';
+      updated++;
+    } else {
+      const id = shortId('acct', externalId || name);
+      writeDoc('accounts', id, Object.assign({ book: 'Personal', notes: '' }, data));
+      accounts.push(Object.assign({ id: id }, data, { book: 'Personal' }));
+      created++;
+    }
+    if (!name) return;
+    readAll('transactions').forEach(function (tx) {
+      if (String(tx.accountId || '').trim()) return;
+      const stored = String(tx.accountName || '').trim();
+      const memo = String(tx.memo || '').trim();
+      if (stored !== name && memo !== name) return;
+      const acct = existing || accounts[accounts.length - 1];
+      writeDoc('transactions', tx.id, Object.assign({}, tx, { accountId: acct.id, accountName: name }));
+      tx.accountId = acct.id;
+      relinked++;
+    });
+  });
+  return { ok: true, created: created, updated: updated, relinked: relinked };
 }
 
 function matchBankRule(rules, merchant) {

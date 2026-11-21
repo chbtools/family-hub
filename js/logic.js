@@ -9,8 +9,8 @@
   const FIELDS = {
     users: ["id", "name", "role", "active", "createdAt"],
     settings: ["id", "randyName", "partnerName", "farmName", "location", "digestEmails", "digestHour", "calendarId", "calendarSync", "mileageRate", "billLeadDays", "taxRate", "eggMargin", "wearRate", "createdAt"],
-    accounts: ["id", "name", "type", "book", "balance", "institution", "notes", "updatedAt"],
-    transactions: ["id", "date", "accountId", "amount", "type", "categoryId", "book", "payee", "memo", "refType", "refId", "externalId", "receiptId", "createdBy", "createdAt"],
+    accounts: ["id", "name", "type", "book", "balance", "institution", "notes", "externalId", "source", "updatedAt"],
+    transactions: ["id", "date", "accountId", "amount", "type", "categoryId", "book", "payee", "memo", "refType", "refId", "externalId", "receiptId", "accountName", "createdBy", "createdAt"],
     categories: ["id", "name", "book", "kind", "monthly", "scheduleF", "sort", "active"],
     budgets: ["id", "categoryId", "month", "amount"],
     bills: ["id", "name", "payee", "amount", "dueDay", "startMonth", "book", "categoryId", "accountId", "autopay", "assignedTo", "active", "notes"],
@@ -605,6 +605,12 @@
     return [head].concat(body).join("\n");
   }
 
+  function isRocketMoney(header) {
+    function has(name) { return header.indexOf(name) >= 0; }
+    const marks = ["original date", "custom name", "ignored from", "institution name", "account number", "tax deductible"].filter(has);
+    return has("date") && has("amount") && marks.length >= 2;
+  }
+
   function importTransactions(text) {
     const table = parseCsv(text);
     if (!table.length) return [];
@@ -616,22 +622,28 @@
       }
       return -1;
     }
+    const rocket = isRocketMoney(header);
     const iDate = col(["date", "posted", "posted date"]);
     const iAmt = col(["amount", "amt"]);
-    const iPayee = col(["payee", "description", "name", "merchant"]);
-    const iMemo = col(["memo", "note", "notes"]);
+    const iPayee = rocket ? col(["custom name", "name", "description"]) : col(["payee", "description", "name", "merchant"]);
+    const iMemo = rocket ? col(["note", "memo", "notes"]) : col(["memo", "note", "notes"]);
     const iCat = col(["category", "cat"]);
     const iBook = col(["book", "split", "household"]);
     const iType = col(["type"]);
+    const iIgnore = col(["ignored from"]);
+    const iAccount = col(["account name", "account"]);
+    const iInstitution = col(["institution name", "institution"]);
     const start = iDate >= 0 || iAmt >= 0 ? 1 : 0;
     const out = [];
     for (let r = start; r < table.length; r++) {
       const cells = table[r];
+      if (iIgnore >= 0 && String(cells[iIgnore] || "").trim()) continue;
       const amountRaw = iAmt >= 0 ? cells[iAmt] : cells[1];
       let amount = num(amountRaw);
+      if (rocket) amount = -amount;
       const typeCell = iType >= 0 ? String(cells[iType] || "").toLowerCase() : "";
-      if (typeCell.indexOf("income") >= 0 || typeCell.indexOf("credit") >= 0) amount = Math.abs(amount);
-      else if (typeCell.indexOf("expense") >= 0 || typeCell.indexOf("debit") >= 0) amount = -Math.abs(amount);
+      if (!rocket && (typeCell.indexOf("income") >= 0 || typeCell.indexOf("credit") >= 0)) amount = Math.abs(amount);
+      else if (!rocket && (typeCell.indexOf("expense") >= 0 || typeCell.indexOf("debit") >= 0)) amount = -Math.abs(amount);
       const bookCell = iBook >= 0 ? String(cells[iBook] || "") : "";
       const book = /farm/i.test(bookCell) ? "Farm" : "Personal";
       let date = iDate >= 0 ? String(cells[iDate] || "").trim() : String(cells[0] || "").trim();
@@ -648,10 +660,63 @@
         memo: iMemo >= 0 ? String(cells[iMemo] || "").trim() : "",
         category: iCat >= 0 ? String(cells[iCat] || "").trim() : "",
         book: book,
-        type: amount >= 0 ? "income" : "expense"
+        type: amount >= 0 ? "income" : "expense",
+        accountName: iAccount >= 0 ? String(cells[iAccount] || "").trim() : "",
+        institution: iInstitution >= 0 ? String(cells[iInstitution] || "").trim() : ""
       });
     }
     return out;
+  }
+
+  function payeeKey(value) {
+    return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+  }
+
+  function payeesSimilar(a, b) {
+    const left = payeeKey(a);
+    const right = payeeKey(b);
+    if (!left || !right) return false;
+    if (left.indexOf(right) >= 0 || right.indexOf(left) >= 0) return true;
+    const lt = left.split(" ").filter(function (word) { return word.length > 2; });
+    const rt = right.split(" ").filter(function (word) { return word.length > 2; });
+    if (!lt.length || !rt.length) return left === right;
+    let overlap = 0;
+    lt.forEach(function (word) { if (rt.indexOf(word) >= 0) overlap++; });
+    return overlap > 0 && overlap / Math.min(lt.length, rt.length) >= 0.5;
+  }
+
+  function accountKey(row, accounts) {
+    if (row.accountName) return String(row.accountName).trim().toLowerCase();
+    const id = String(row.accountId || "");
+    if (id && accounts) {
+      for (let i = 0; i < accounts.length; i++) {
+        if (accounts[i].id === id) return String(accounts[i].name || "").trim().toLowerCase();
+      }
+    }
+    return id.toLowerCase();
+  }
+
+  /* Same calendar day, plus or minus 2, same cents, and a similar payee.
+     A blank payee matches only the same account. */
+  function csvDuplicate(existing, row, accounts) {
+    if (round2(existing.amount) !== round2(row.amount)) return false;
+    if (!existing.date || !row.date) return false;
+    const days = Math.abs(diffDays(existing.date, row.date));
+    if (!isFinite(days) || days > 2) return false;
+    if (!payeeKey(row.payee)) return accountKey(existing, accounts) !== "" && accountKey(existing, accounts) === accountKey(row, accounts);
+    return payeesSimilar(existing.payee, row.payee);
+  }
+
+  function planCsvImport(existing, rows, accounts) {
+    const accepted = [];
+    const skipped = [];
+    (rows || []).forEach(function (row) {
+      const dup = (existing || []).some(function (item) { return csvDuplicate(item, row, accounts); })
+        || accepted.some(function (item) { return csvDuplicate(item, row, accounts); });
+      if (dup) skipped.push(row);
+      else accepted.push(row);
+    });
+    return { accepted: accepted, skipped: skipped };
   }
 
   function searchAll(state, query) {
@@ -854,6 +919,7 @@
     parseCsv: parseCsv,
     toCsv: toCsv,
     importTransactions: importTransactions,
+    planCsvImport: planCsvImport,
     searchAll: searchAll,
     taxRows: taxRows,
     chunkOps: chunkOps,

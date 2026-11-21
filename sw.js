@@ -1,6 +1,6 @@
 /* App shell cache. Network first, so a GitHub Pages update shows up.
    The Google Sheet is never cached here. */
-const CACHE = "family-hub-v6";
+const CACHE = "family-hub-v7";
 const SHELL = [
   "./",
   "./index.html",
