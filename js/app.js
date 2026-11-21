@@ -1401,6 +1401,29 @@
     },
     "delete-tx": function (el) { ask("Delete this transaction?", "The account balance will be put back.", "confirm-delete-tx", el.dataset.id); },
     "confirm-delete-tx": function (el) { removeTx(el.dataset.id); },
+    "tick-dups": function (el) {
+      const on = el.dataset.on === "yes";
+      document.querySelectorAll('form[data-act="preview-dup-delete"] input[name="drop"]').forEach(function (box) { box.checked = on; });
+    },
+    "confirm-dup-delete": function () {
+      const pairs = L().duplicatePairs(App.state.transactions, App.state.accounts);
+      const ids = L().cleanupIds(pairs, App.dupDeleteIds || []);
+      App.dupDeleteIds = [];
+      if (!ids.length) { closeModal(); toast("Nothing selected."); return; }
+      change(function (api) {
+        ids.forEach(function (id) {
+          const tx = L().byId(App.state.transactions, id);
+          if (!tx || tx.refType !== "csv") return;
+          const acct = L().byId(App.state.accounts, tx.accountId);
+          if (!acct || acct.source !== "bank") shiftAccount(api, tx.accountId, -L().num(tx.amount));
+          api.remove("transactions", id);
+        });
+      }).then(function () {
+        closeModal();
+        toast("Removed " + ids.length + " imported " + (ids.length === 1 ? "row" : "rows") + ".");
+        render();
+      });
+    },
     "pay-job": function (el) { payJob(el.dataset.id); },
     "print-job": function (el) { printJob(el.dataset.id); },
     "device-cmd": function (el) {
@@ -1439,7 +1462,8 @@
           if (!rows.length) { toast("No rows with a date and an amount were found."); return; }
           const planned = L().planCsvImport(App.state.transactions, rows, App.state.accounts);
           App.importRows = planned.accepted;
-          openModal("Import " + planned.accepted.length + " rows", '<form class="stack" data-act="save-import"><p>' + planned.accepted.length + " will be added. " + planned.skipped.length + " look like duplicates and will be skipped.</p><p>A row that names an account you already have uses that account. The rest use the account you pick. Personal or Farm comes from the file when that column is present.</p>" + U().select("Account", "accountId", farmAccount(), U().accountOptions(App.state)) + cancelRow() + "</form>");
+          const sign = planned.signNote ? "<p>" + U().esc(planned.signNote) + "</p>" : "";
+          openModal("Import " + planned.accepted.length + " rows", '<form class="stack" data-act="save-import"><p>' + planned.accepted.length + " will be added. " + planned.skipped.length + " look like duplicates and will be skipped.</p>" + sign + "<p>A row that names an account you already have uses that account. The rest use the account you pick. Personal or Farm comes from the file when that column is present.</p>" + U().select("Account", "accountId", farmAccount(), U().accountOptions(App.state)) + cancelRow() + "</form>");
         });
       };
       input.click();
@@ -1700,6 +1724,14 @@
       });
       toast("Settings saved.");
       render();
+      return;
+    }
+    if (act === "preview-dup-delete") {
+      const pairs = L().duplicatePairs(App.state.transactions, App.state.accounts);
+      const ids = L().cleanupIds(pairs, data.drop || "");
+      if (!ids.length) { toast("Tick the imported rows to remove. Nothing was deleted."); return; }
+      App.dupDeleteIds = ids;
+      ask("Delete " + ids.length + " imported " + (ids.length === 1 ? "row" : "rows") + "?", "Only the ticked imported rows are removed. The bank rows stay.", "confirm-dup-delete");
       return;
     }
     if (act === "save-import") {

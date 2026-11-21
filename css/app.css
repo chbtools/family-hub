@@ -156,6 +156,11 @@ h3 { font-size: 1.15rem; }
   box-shadow: none;
 }
 .item .grow { min-width: 0; flex: 1; }
+.dup-pair { align-items: flex-start; }
+@media (max-width: 799px) {
+  .dup-pair { flex-wrap: wrap; }
+  .dup-pair .grow { flex: 1 1 calc(50% - 40px); }
+}
 .item p, .person p { margin: 2px 0; }
 .chip {
   display: inline-flex; align-items: center; border-radius: 999px;
