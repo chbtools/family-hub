@@ -1437,8 +1437,9 @@
         file.text().then(function (text) {
           const rows = L().importTransactions(text);
           if (!rows.length) { toast("No rows with a date and an amount were found."); return; }
-          App.importRows = rows;
-          openModal("Import " + rows.length + " rows", '<form class="stack" data-act="save-import"><p>Choose the account these rows belong to. Personal or Farm comes from the file when that column is present.</p>' + U().select("Account", "accountId", farmAccount(), U().accountOptions(App.state)) + cancelRow() + "</form>");
+          const planned = L().planCsvImport(App.state.transactions, rows, App.state.accounts);
+          App.importRows = planned.accepted;
+          openModal("Import " + planned.accepted.length + " rows", '<form class="stack" data-act="save-import"><p>' + planned.accepted.length + " will be added. " + planned.skipped.length + " look like duplicates and will be skipped.</p><p>A row that names an account you already have uses that account. The rest use the account you pick. Personal or Farm comes from the file when that column is present.</p>" + U().select("Account", "accountId", farmAccount(), U().accountOptions(App.state)) + cancelRow() + "</form>");
         });
       };
       input.click();
@@ -1471,6 +1472,21 @@
         if (res && res.sent) toast("Digest sent.");
         else toast((res && res.error) || "The digest was not sent.");
       });
+    },
+    "toggle-cal-view": function (el) {
+      App.calHide = App.calHide || {};
+      const id = el.dataset.id;
+      if (id === "hub") App.calHide.hub = !App.calHide.hub;
+      else App.calHide[id] = !App.calHide[id];
+      try { localStorage.setItem("hub-cal-hide", JSON.stringify(App.calHide)); } catch (e) {}
+      render();
+    },
+    "toggle-gcal": function (el) {
+      const row = L().byId(App.state.calendars, el.dataset.id);
+      if (!row) return;
+      change(function (api) {
+        api.upsert("calendars", { id: row.id, enabled: String(row.enabled) === "no" ? "yes" : "no" });
+      }).then(function () { render(); });
     },
     "cal-sync": function () {
       if (App.mode !== "live") { toast("Calendar sync runs after the Google Sheet is connected."); return; }
@@ -1657,6 +1673,17 @@
     if (act === "save-upkeep-log") return saveUpkeepLog(data);
     if (act === "save-doc") return saveDoc(data);
     if (act === "save-routine") return saveRoutine(data);
+    if (act === "add-gcal") {
+      const id = String(data.calendarId || "").trim();
+      if (!id) { toast("Enter a calendar id."); return; }
+      const color = /^#[0-9A-Fa-f]{6}$/.test(data.color || "") ? data.color : "#3c7ea6";
+      await change(function (api) {
+        api.upsert("calendars", { id: L().uid("cal"), calendarId: id, name: data.name || (id.toLowerCase() === "primary" ? "Primary" : id), color: color, owner: data.owner || "shared", enabled: "yes" });
+      });
+      toast("Calendar added. Sync now to pull its events.");
+      render();
+      return;
+    }
     if (act === "save-settings") {
       await change(function (api) {
         api.upsert("settings", {
@@ -1676,21 +1703,28 @@
       return;
     }
     if (act === "save-import") {
-      const rows = App.importRows || [];
+      const planned = L().planCsvImport(App.state.transactions, App.importRows || [], App.state.accounts);
       await change(function (api) {
-        rows.forEach(function (row) {
+        planned.accepted.forEach(function (row) {
+          let accountId = data.accountId;
+          if (row.accountName) {
+            const named = (App.state.accounts || []).find(function (acct) { return String(acct.name || "").trim().toLowerCase() === String(row.accountName).trim().toLowerCase(); });
+            if (named) accountId = named.id;
+          }
           const cat = (App.state.categories || []).find(function (item) { return String(item.name).toLowerCase() === String(row.category || "").toLowerCase(); });
+          const acct = L().byId(App.state.accounts, accountId);
           api.upsert("transactions", {
-            id: L().uid("tx"), date: row.date, accountId: data.accountId, amount: row.amount, type: row.type,
+            id: L().uid("tx"), date: row.date, accountId: accountId, amount: row.amount, type: row.type,
             categoryId: cat ? cat.id : "", book: row.book, payee: row.payee, memo: row.memo, refType: "csv", refId: "",
+            externalId: "", receiptId: "", accountName: row.accountName || "",
             createdBy: App.userId, createdAt: new Date().toISOString()
           });
-          shiftAccount(api, data.accountId, row.amount);
+          if (!acct || acct.source !== "bank") shiftAccount(api, accountId, row.amount);
         });
       });
       App.importRows = [];
       closeModal();
-      toast("Imported " + rows.length + " transactions.");
+      toast("Imported " + planned.accepted.length + ". Skipped " + planned.skipped.length + " duplicates.");
       return;
     }
     if (act === "save-trip") return onTrip(data);
@@ -1842,6 +1876,7 @@
     App.calDay = L().today();
     App.calMode = window.innerWidth < 800 ? "agenda" : "month";
     App.route = (location.hash || "#home").slice(1) || "home";
+    try { App.calHide = JSON.parse(localStorage.getItem("hub-cal-hide") || "{}"); } catch (e) { App.calHide = {}; }
     if (!location.hash) history.replaceState(null, "", "#home");
     if (App.mode === "sample") {
       App.devices = globalThis.HubSample.demoDevices();

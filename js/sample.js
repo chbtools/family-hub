@@ -132,7 +132,12 @@
     state.events = [
       { id: "ev_market", title: "Egg stand at the market", date: on(1), time: "08:00", endTime: "12:00", owner: "user_partner", category: "farm", source: "manual", sourceId: "", notes: "Duck, chicken, and quail.", gcalId: "" },
       { id: "ev_dinner", title: "Dinner with the neighbors", date: on(3), time: "18:00", endTime: "20:00", owner: "shared", category: "family", source: "manual", sourceId: "", notes: "", gcalId: "" },
-      { id: "ev_feed", title: "Pick up layer feed", date: on(0), time: "16:00", endTime: "", owner: "user_randy", category: "farm", source: "manual", sourceId: "", notes: "", gcalId: "" }
+      { id: "ev_feed", title: "Pick up layer feed", date: on(0), time: "16:00", endTime: "", owner: "user_randy", category: "farm", source: "manual", sourceId: "", notes: "", gcalId: "", calId: "", color: "", link: "" },
+      { id: "ev_choir", title: "Choir practice", date: on(4), time: "19:00", endTime: "20:00", owner: "user_partner", category: "Partner", source: "google", sourceId: "", notes: "Partner", gcalId: "sample-g1", calId: "partner@example.com", color: "#3c7ea6", link: "https://calendar.google.com/" }
+    ];
+    state.calendars = [
+      { id: "cal_family", calendarId: "family@example.com", name: "Family", color: "#1f6b3a", owner: "shared", enabled: "yes" },
+      { id: "cal_partner", calendarId: "partner@example.com", name: "Partner", color: "#3c7ea6", owner: "user_partner", enabled: "yes" }
     ];
     state.lists = [
       { id: "list_groc", name: "Grocery", kind: "grocery", sort: 1 },

@@ -58,6 +58,30 @@ Roo, or any helper you trust, can push SECU transactions once a day. The request
 
 The reply looks like `{ "ok": true, "added": 1, "skipped": 0 }`.
 
+Each imported row stores the bank account name in `accountName`. A bank-synced account (see balances below) does not have its balance changed by these rows.
+
+Balances are a separate POST, also with `IMPORT_KEY`. The balance is stored as a positive number. `source` is set to `bank`, so later transaction imports do not add onto that balance. An account is matched by `externalId`, then by the exact name. If it is new, the book is Personal. Transactions with an empty account and the same stored account name are linked to it.
+
+```json
+{
+  "action": "importBalances",
+  "key": "the IMPORT_KEY you saved in Script properties",
+  "accounts": [
+    {
+      "externalId": "secu-acct-00000000-0000-0000-0000-000000000000",
+      "name": "SECU Checking 7135",
+      "type": "checking",
+      "institution": "SECU",
+      "balance": 1234.56
+    }
+  ]
+}
+```
+
+The reply is `{ "ok": true, "created": 1, "updated": 0, "relinked": 0 }`. `type` is `checking` or `savings`.
+
+A CSV from the phone can also be Rocket Money. That export lists spending as a positive amount and income as a negative amount, so the importer flips the sign. Custom Name is the payee, Category is kept, and Note becomes the memo. Rows with Ignored From filled in are skipped. Account Name is used when it matches an account you already have. Any CSV import, including a plain one, skips a row that matches an existing transaction on the same amount to the cent, a date within two days, and a similar payee. The confirm box says how many will be added and how many will be skipped.
+
 Optional: put a SimpleFIN Bridge access URL in the script property `SIMPLEFIN_ACCESS_URL`. The daily trigger reads the last 10 days from that URL and imports them the same way. Leave the property blank if Roo is pushing SECU instead.
 
 ## The other tools
@@ -94,7 +118,8 @@ Optional: put a SimpleFIN Bridge access URL in the script property `SIMPLEFIN_AC
 | `SMARTTHINGS_TOKEN` | For house controls and laundry | Personal access token |
 | `BLINK_EMAIL`, `BLINK_PASSWORD` | No | Experimental cameras |
 | `DIGEST_EMAILS` | No | Used if Settings has no addresses yet |
-| `GOOGLE_CALENDAR_ID` | No | Fallback calendar id |
+| `GOOGLE_CALENDAR_ID` | No | One calendar id. Still used if you only have one |
+| `GOOGLE_CALENDAR_IDS` | No | Several calendar ids, separated by commas. `primary` is allowed |
 
 After you add a property, deploy a **new version** of the web app (Deploy → Manage deployments → pencil → Version: New version). The `/exec` address stays the same.
 
@@ -105,6 +130,7 @@ Then in the script editor choose **installTriggers** and click **Run** once. Tha
 - `weeklyMoney` Sunday at 6pm
 - `simplefinDaily` at 5am (it does nothing if the SimpleFIN URL is empty)
 - `laundryWatch` about once an hour
+- `importGoogleCalendars` about every 30 minutes
 
 `installDigestTrigger` still works. It runs `installTriggers`.
 
@@ -162,7 +188,8 @@ On the sheet, you can sort and filter. Do not rename the tabs or the header row.
 | `BLINK_EMAIL` | No | Blink account email. Experimental. See below. |
 | `BLINK_PASSWORD` | No | Blink password. Experimental. Stays in the script. |
 | `DIGEST_EMAILS` | No | Extra digest addresses. The list in Settings is the one the app uses first. |
-| `GOOGLE_CALENDAR_ID` | No | Fallback calendar id. Settings is the easier place to put it. |
+| `GOOGLE_CALENDAR_ID` | No | One calendar id. Still works |
+| `GOOGLE_CALENDAR_IDS` | No | Comma-separated calendar ids to import together. `primary` means Randy's main calendar |
 
 After you add or change a property, deploy a **new version** of the existing web app (Deploy → Manage deployments → pencil → Version: New version → Deploy). The `/exec` address stays the same. You do not need a new URL.
 
@@ -182,7 +209,8 @@ After you add or change a property, deploy a **new version** of the existing web
 | snapshots | Net worth on the days you saved one |
 | goals, milestones | Shared and personal goals |
 | projects, tasks | Home and farm projects |
-| events | Calendar entries you typed, plus events pulled from Google Calendar |
+| events | Calendar entries you typed, plus events pulled from Google |
+| calendars | Google calendars to import: id, name, color, whose, on or off |
 | lists, listItems | Grocery, farm supply, hardware, and anything else |
 | chores | To-dos, including ones that repeat |
 | meals, mealItems | The week of meals and their ingredients |
@@ -206,16 +234,42 @@ After you add or change a property, deploy a **new version** of the existing web
 
 The trigger does not change the web app URL. The email lists bills due in the next 7 days, today's events, and upcoming farm jobs. It does not include the access code. Run **installDigestTrigger** again if you change the hour. That replaces the old trigger.
 
-## Google Calendar
+## Google calendars
 
-The calendar has to live on the same Google account that owns the script.
+Family Hub can show several Google calendars on the same page as bills, jobs, and trips. The script runs as you, so a calendar has to be yours or shared with you.
 
-1. In Google Calendar, open the calendar's settings and copy the **Calendar ID**. It often looks like an email address.
-2. Paste it into **More → Settings → Google Calendar id**.
-3. Set **Calendar sync** to **Push Family Hub to Google** or **Both ways**, and save.
-4. Open **More → Calendar** and tap **Sync Google Calendar**.
+### Find a calendar id
 
-Push writes your events, bill due dates, and scheduled jobs. Both ways also brings back events that were created in Google Calendar. Events the app created are marked so they are not copied back as duplicates. Deleting an event on one side does not delete it on the other. The daily digest also pushes when sync is set to push or both, if the calendar permission has been allowed.
+1. Open [calendar.google.com](https://calendar.google.com) on a computer, signed in as the Google account that owns the script.
+2. Hover the calendar in the left list, click the three dots, then **Settings and sharing**.
+3. Scroll to **Integrate calendar** and copy **Calendar ID**. It often looks like an email address. Your main calendar can also be entered as `primary`.
+
+### Have your wife share her calendar
+
+1. She opens Google Calendar, then **Settings and sharing** on her calendar.
+2. Under **Share with specific people**, she adds your Google account.
+3. She sets permission to **See all event details**. Make changes is not required for import.
+4. You accept the share if Google asks. The calendar should appear in your left list. Copy its calendar id the same way as above.
+
+Work calendars work the same way when they are shared with you.
+
+### Add the ids
+
+Either place is enough. You can use both.
+
+- In the app: **More → Settings → Google calendars**. Type the calendar id and a name, pick whose calendar it is, and tap **Add calendar**. Tap **On** to stop importing one without deleting it. Tap **Sync now**.
+- Or in Apps Script: **Project settings → Script properties**. Add `GOOGLE_CALENDAR_IDS` with the ids separated by commas, for example `primary, wife@gmail.com`. `GOOGLE_CALENDAR_ID` still works for a single id.
+
+The first sync adds a row on the **calendars** tab for each id it finds.
+
+### Turn on the timer and the permission
+
+1. Paste the latest `Code.gs` if this is a new version. **Deploy → Manage deployments → pencil → Version: New version → Deploy**. The `/exec` address stays the same.
+2. In the script editor, choose **installTriggers** and click **Run**. Allow calendar permission when Google asks.
+3. That adds a timer, `importGoogleCalendars`, about every 30 minutes. It pulls 30 days back and 180 days ahead.
+4. Open **More → Calendar**. Each calendar has a color. Tap a name in the legend to hide or show it. A Google event opens in Google Calendar. It is not edited in Family Hub.
+
+Push is unchanged. **Google Calendar id** plus **Push Family Hub to Google** or **Both ways** still writes Family Hub events onto that one calendar. Those events are marked so the import does not copy them back. If you delete an event in Google, the next import removes that imported copy from Family Hub. Events you typed in Family Hub stay.
 
 ## SmartThings
 
