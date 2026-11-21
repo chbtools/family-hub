@@ -30,7 +30,9 @@ Each person picks their name in the top corner. Randy is already there. The seco
 
 **Today** is the shared agenda, chores, the weekly meal plan, and shopping. A meal can push its ingredients onto the grocery list. Shopping has Grocery, Farm supply, and Hardware, with aisles, a quick add box, and staples. **Restock staples** unchecks the regulars. With the sheet connected, the list refreshes about every 30 seconds, and **Refresh** does it immediately.
 
-**More** holds the calendar (month, week, and agenda), goals with milestones, home and farm projects, the house controls, settings, and search. Bill due dates and scheduled farm jobs appear on the calendar by themselves. The **+** button is quick add from any screen. **Dark** / **Light** is in the header. Search looks across bills, jobs, lists, and goals. **Download JSON** is a full backup. Transactions and the farm year also export as CSV.
+**Vacations** starts on Home as the next trip: days and hours until you leave, or until you are home if the trip has started. Tap it for **Vacations** (also under **More**). A trip has dates, destination, who is going, a budget against what you have spent, a day-by-day plan (drive or flight, lodging with a confirmation number, reservations, activities, addresses, notes), and checklists. Packing can be per person. The before-we-leave list covers the house and the farm: feeding, egg collection, the coop, the thermostat, and documents. Checklist templates can be applied to any trip. Turn on **Spent comes from Money** and use **Add expense** when a cost should also be a transaction. Each day of the trip shows on the calendar.
+
+**More** holds the calendar (month, week, and agenda), vacations, goals with milestones, home and farm projects, the house controls, settings, and search. Bill due dates, scheduled farm jobs, and trip days appear on the calendar by themselves. The **+** button is quick add from any screen. **Dark** / **Light** is in the header. Search looks across bills, jobs, lists, and goals. **Download JSON** is a full backup. Transactions and the farm year also export as CSV.
 
 ## Turn on GitHub Pages
 
@@ -115,6 +117,10 @@ After you add or change a property, deploy a **new version** of the existing web
 | equipment, serviceLogs | Tractor, implements, and service |
 | flock | Birds on hand |
 | mileage | Miles and tractor hours |
+| trips | Vacation dates, destination, travelers, budget |
+| itinerary | Flights, drives, lodging, reservations, by day |
+| tripItems | Packing and before-we-leave checklists |
+| templates, templateItems | Reusable checklists, including the farm close-up |
 
 ## Morning digest
 

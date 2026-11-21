@@ -218,6 +218,9 @@ html[data-theme="dark"] .fab { color: #102113; }
 .dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--green); display: block; }
 .dots i.bill { background: var(--gold); }
 .dots i.job { background: var(--blue); }
+.dots i.trip { background: #6b4c9a; }
+a.countdown { text-decoration: none; color: inherit; display: flex; justify-content: space-between; gap: 12px; align-items: center; margin: 0 0 12px; }
+.countdown .when { font-family: var(--display); font-size: 1.6rem; line-height: 1.1; text-align: right; }
 .device { display: flex; flex-direction: column; gap: 8px; }
 .device .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .device .controls .meta { flex-basis: 100%; margin: 4px 0 0; }

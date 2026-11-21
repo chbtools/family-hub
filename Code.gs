@@ -48,7 +48,12 @@ const COLUMNS = {
   equipment: ['id', 'name', 'type', 'hours', 'status', 'notes'],
   serviceLogs: ['id', 'equipmentId', 'date', 'hours', 'what', 'cost', 'notes', 'by'],
   flock: ['id', 'species', 'breed', 'count', 'acquired', 'status', 'notes'],
-  mileage: ['id', 'date', 'vehicle', 'miles', 'hours', 'purpose', 'book', 'jobId', 'notes']
+  mileage: ['id', 'date', 'vehicle', 'miles', 'hours', 'purpose', 'book', 'jobId', 'notes'],
+  trips: ['id', 'name', 'destination', 'startDate', 'endDate', 'departTime', 'travelers', 'budget', 'spent', 'trackMoney', 'notes'],
+  itinerary: ['id', 'tripId', 'date', 'time', 'kind', 'title', 'address', 'confirmation', 'notes', 'sort'],
+  tripItems: ['id', 'tripId', 'listName', 'kind', 'assignee', 'text', 'done', 'sort'],
+  templates: ['id', 'name', 'kind', 'notes'],
+  templateItems: ['id', 'templateId', 'text', 'assignee', 'sort']
 };
 
 const NUMERIC = ['balance', 'amount', 'monthly', 'sort', 'dueDay', 'digestHour', 'mileageRate', 'principal', 'apr', 'payment', 'assets', 'liabilities', 'net', 'targetAmount', 'currentAmount', 'budget', 'spent', 'count', 'dozens', 'price', 'total', 'hours', 'rate', 'mileage', 'miles', 'cost'];
@@ -347,6 +352,13 @@ function ensureBaseline() {
     writeDoc('lists', 'list_farm', { name: 'Farm supply', kind: 'farm', sort: 2 });
     writeDoc('lists', 'list_hard', { name: 'Hardware', kind: 'hardware', sort: 3 });
   }
+  if (!readAll('templates').length) {
+    writeDoc('templates', 'tpl_leave', { name: 'Before we leave', kind: 'farm', notes: 'House and farm close-up.' });
+    writeDoc('templateItems', 'tpi1', { templateId: 'tpl_leave', text: 'Feed and water covered', assignee: 'user_randy', sort: 1 });
+    writeDoc('templateItems', 'tpi2', { templateId: 'tpl_leave', text: 'Egg collection covered', assignee: 'user_partner', sort: 2 });
+    writeDoc('templateItems', 'tpi3', { templateId: 'tpl_leave', text: 'Coop secured', assignee: 'user_randy', sort: 3 });
+    writeDoc('templateItems', 'tpi4', { templateId: 'tpl_leave', text: 'Thermostat set and doors locked', assignee: 'shared', sort: 4 });
+  }
 }
 
 /* Dates below match openCycle in js/logic.js. The email is built here, not from the phone. */
@@ -605,6 +617,11 @@ function calendarPlans(day) {
     if (!job.date || job.status === 'cancelled' || job.status === 'quote') return;
     if (job.date < addDays(day, -1) || job.date > addDays(day, 60)) return;
     plans.push(planFrom('job_' + job.id, serviceName(job.service) + (job.customerName ? ' · ' + job.customerName : ''), job.date, '', '', job.address || ''));
+  });
+  readAll('trips').forEach(function (trip) {
+    if (!trip.startDate || trip.startDate > addDays(day, 60)) return;
+    if (trip.endDate && trip.endDate < addDays(day, -1)) return;
+    plans.push(planFrom('trip_' + trip.id, (trip.name || 'Trip') + (trip.destination ? ' · ' + trip.destination : ''), trip.startDate, trip.departTime || '', '', 'Through ' + (trip.endDate || trip.startDate)));
   });
   return plans.slice(0, 80);
 }

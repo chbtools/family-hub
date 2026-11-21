@@ -157,6 +157,23 @@ test("dashboard names both people and counts open shopping items", () => {
   assert.ok(dash.openJobs.some((job) => job.status === "invoiced"));
 });
 
+test("vacation countdown, spending, and calendar days", () => {
+  const state = sample();
+  const trip = state.trips.find((row) => row.id === "trip_beach");
+  const count = L.countdown(trip, new Date(2026, 10, 21, 8, 0, 0));
+  assert.equal(count.phase, "until");
+  assert.equal(count.days, 20);
+  assert.equal(count.hours, 0);
+  assert.equal(L.tripSpent(state, trip), 40);
+  const depart = L.calendarEntries(state, trip.startDate, trip.endDate).filter((item) => item.source === "trip");
+  assert.equal(depart[0].notes, "depart");
+  assert.equal(depart[depart.length - 1].notes, "return");
+  assert.ok(depart.length >= 4);
+  assert.equal(L.countdown(trip, new Date(2026, 11, 12, 12, 0, 0)).phase, "there");
+  assert.equal(L.countdown(trip, new Date(2026, 11, 20, 12, 0, 0)), null);
+  assert.ok(L.searchAll(state, "emerald").some((hit) => hit.kind === "Trip"));
+});
+
 test("Code.gs collections match the client schema", () => {
   const src = fs.readFileSync(path.join(__dirname, "..", "Code.gs"), "utf8");
   const block = src.slice(src.indexOf("const COLUMNS"), src.indexOf("const NUMERIC"));
