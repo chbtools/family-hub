@@ -386,6 +386,17 @@ test("a Google event keeps its calendar color and stays read-only", () => {
   assert.equal(hit.calId, "partner@example.com");
 });
 
+test("the settings id hub is accepted and a two-character id is not", () => {
+  assert.equal(L.okId("hub"), true);
+  assert.equal(L.okId("user_randy"), true);
+  assert.equal(L.okId("user_partner"), true);
+  assert.equal(L.okId("ab"), false);
+  assert.equal(L.okId(""), false);
+  assert.equal(L.okId(L.uid("tx")), true);
+  const src = fs.readFileSync(path.join(__dirname, "..", "Code.gs"), "utf8");
+  assert.equal(src.includes("function okId(id) { return /^[A-Za-z0-9_-]{3,40}$/.test(String(id || '')); }"), true);
+});
+
 test("Code.gs collections match the client schema", () => {
   const src = fs.readFileSync(path.join(__dirname, "..", "Code.gs"), "utf8");
   const block = src.slice(src.indexOf("const COLUMNS"), src.indexOf("const NUMERIC"));
