@@ -11,7 +11,8 @@
  *   BLINK_EMAIL          optional, experimental Blink login
  *   BLINK_PASSWORD       optional, experimental Blink login
  *   DIGEST_EMAILS        optional extra digest addresses (the app settings are preferred)
- *   GOOGLE_CALENDAR_ID   optional fallback calendar id
+ *   GOOGLE_CALENDAR_ID   optional one calendar id (still works)
+ *   GOOGLE_CALENDAR_IDS  optional comma-separated ids, including primary
  *
  * Deploy as a web app: Execute as me, Who has access: Anyone.
  * The access code is what keeps strangers out. "Anyone" only lets the page reach the script.
@@ -35,7 +36,8 @@ const COLUMNS = {
   milestones: ['id', 'goalId', 'name', 'done', 'dueDate', 'sort'],
   projects: ['id', 'name', 'area', 'status', 'budget', 'spent', 'owner', 'startDate', 'targetDate', 'notes'],
   tasks: ['id', 'projectId', 'title', 'assignee', 'status', 'dueDate', 'notes'],
-  events: ['id', 'title', 'date', 'time', 'endTime', 'owner', 'category', 'source', 'sourceId', 'notes', 'gcalId'],
+  events: ['id', 'title', 'date', 'time', 'endTime', 'owner', 'category', 'source', 'sourceId', 'notes', 'gcalId', 'calId', 'color', 'link'],
+  calendars: ['id', 'calendarId', 'name', 'color', 'owner', 'enabled'],
   lists: ['id', 'name', 'kind', 'sort'],
   listItems: ['id', 'listId', 'name', 'aisle', 'qty', 'checked', 'staple', 'addedBy', 'createdAt'],
   chores: ['id', 'title', 'assignee', 'dueDate', 'cadence', 'status', 'area', 'notes', 'doneAt', 'doneBy'],
@@ -535,7 +537,7 @@ function digestHour() {
 
 /** Run once from the editor. Installs the daily digest, bill reminders, Sunday money note, SimpleFIN pull, and laundry check. Does not change the web app URL. */
 function installTriggers() {
-  const names = { familyDigest: 1, billReminders: 1, weeklyMoney: 1, simplefinDaily: 1, laundryWatch: 1 };
+  const names = { familyDigest: 1, billReminders: 1, weeklyMoney: 1, simplefinDaily: 1, laundryWatch: 1, importGoogleCalendars: 1 };
   ScriptApp.getProjectTriggers().forEach(function (t) {
     if (names[t.getHandlerFunction()]) ScriptApp.deleteTrigger(t);
   });
@@ -544,6 +546,7 @@ function installTriggers() {
   ScriptApp.newTrigger('weeklyMoney').timeBased().onWeekDay(ScriptApp.WeekDay.SUNDAY).atHour(18).create();
   ScriptApp.newTrigger('simplefinDaily').timeBased().everyDays(1).atHour(5).create();
   ScriptApp.newTrigger('laundryWatch').timeBased().everyHours(1).create();
+  ScriptApp.newTrigger('importGoogleCalendars').timeBased().everyMinutes(30).create();
 }
 
 /** Older name. Runs installTriggers. */
@@ -572,10 +575,31 @@ function calendarHandle(p) {
 }
 
 function calendarSync(op) {
-  const id = calendarId();
-  if (!id) return { ok: false, error: 'Add a Google Calendar id in Settings first.' };
-  const cal = CalendarApp.getCalendarById(id);
-  if (!cal) return { ok: false, error: 'That calendar was not found on the Google account that owns this script.' };
+  let pushed = 0;
+  let pulled = 0;
+  let removed = 0;
+  const notes = [];
+  if (op !== 'pull') {
+    const id = calendarId();
+    if (id) {
+      const pushedResult = pushHubCalendar(id);
+      if (pushedResult.error) notes.push(pushedResult.error);
+      else pushed = pushedResult.pushed || 0;
+    }
+  }
+  if (op !== 'push') {
+    const imported = importGoogleCalendars();
+    pulled = imported.pulled || 0;
+    removed = imported.removed || 0;
+    if (imported.missing && imported.missing.length) notes.push('Not on this Google account: ' + imported.missing.join(', '));
+    if (!imported.sources) notes.push('No Google calendars are connected yet.');
+  }
+  return { ok: true, pushed: pushed, pulled: pulled, removed: removed, message: notes.join(' ') };
+}
+
+function pushHubCalendar(id) {
+  const cal = openGoogleCalendar(id);
+  if (!cal) return { error: 'The push calendar was not found on the Google account that owns this script.', pushed: 0 };
   const day = todayIso();
   const start = localDate(addDays(day, -1), '00:00');
   const end = localDate(addDays(day, 60), '23:59');
@@ -587,64 +611,157 @@ function calendarSync(op) {
     if (match) byMarker[match[1]] = ev;
   });
   let pushed = 0;
+  calendarPlans(day).forEach(function (plan) {
+    const desc = (plan.notes ? plan.notes + '\n' : '') + hubMarker(plan.id);
+    const ev = byMarker[plan.id];
+    if (plan.allDay) {
+      const when = localDate(plan.date, '00:00');
+      if (ev) { ev.setTitle(plan.title); ev.setDescription(desc); }
+      else cal.createAllDayEvent(plan.title, when, localDate(addDays(plan.date, 1), '00:00'), { description: desc });
+    } else if (ev && !ev.isAllDayEvent()) {
+      ev.setTitle(plan.title);
+      ev.setDescription(desc);
+      ev.setTime(plan.start, plan.end);
+    } else {
+      if (ev) ev.deleteEvent();
+      cal.createEvent(plan.title, plan.start, plan.end, { description: desc });
+    }
+    pushed++;
+  });
+  return { pushed: pushed };
+}
+
+function openGoogleCalendar(id) {
+  const clean = String(id || '').trim();
+  if (!clean) return null;
+  try {
+    if (clean.toLowerCase() === 'primary') return CalendarApp.getDefaultCalendar();
+    return CalendarApp.getCalendarById(clean);
+  } catch (err) { return null; }
+}
+
+/** Time-driven. Pulls every connected Google calendar. Does not push Family Hub events. */
+function importGoogleCalendars() {
+  const day = todayIso();
+  const from = addDays(day, -30);
+  const to = addDays(day, 180);
+  const start = localDate(from, '00:00');
+  const end = localDate(to, '23:59');
+  const sources = googleCalendarSources();
+  const rows = readAll('events');
   let pulled = 0;
-  if (op !== 'pull') {
-    const plans = calendarPlans(day);
-    plans.forEach(function (plan) {
-      const desc = (plan.notes ? plan.notes + '\n' : '') + hubMarker(plan.id);
-      const ev = byMarker[plan.id];
-      if (plan.allDay) {
-        const when = localDate(plan.date, '00:00');
-        if (ev) { ev.setTitle(plan.title); ev.setDescription(desc); }
-        else cal.createAllDayEvent(plan.title, when, localDate(addDays(plan.date, 1), '00:00'), { description: desc });
-      } else if (ev && !ev.isAllDayEvent()) {
-        ev.setTitle(plan.title);
-        ev.setDescription(desc);
-        ev.setTime(plan.start, plan.end);
-      } else {
-        if (ev) ev.deleteEvent();
-        cal.createEvent(plan.title, plan.start, plan.end, { description: desc });
-      }
-      pushed++;
-    });
-  }
-  if (op !== 'push') {
-    const rows = readAll('events');
-    existing.forEach(function (ev) {
+  let removed = 0;
+  const missing = [];
+  sources.forEach(function (source) {
+    const cal = openGoogleCalendar(source.calendarId);
+    if (!cal) { missing.push(source.calendarId); return; }
+    const realId = cal.getId();
+    const seen = {};
+    const events = cal.getEvents(start, end);
+    events.forEach(function (ev) {
       const desc = String(ev.getDescription() || '');
       if (desc.indexOf('[hub:') >= 0) return;
-      const gid = ev.getId();
-      let row = null;
-      for (let i = 0; i < rows.length; i++) if (rows[i].gcalId === gid) row = rows[i];
+      const gid = String(ev.getId() || '');
+      if (!gid) return;
+      seen[gid] = true;
       const when = ev.isAllDayEvent() ? ev.getAllDayStartDate() : ev.getStartTime();
       const date = Utilities.formatDate(when, Session.getScriptTimeZone() || 'America/New_York', 'yyyy-MM-dd');
       const time = ev.isAllDayEvent() ? '' : Utilities.formatDate(ev.getStartTime(), Session.getScriptTimeZone() || 'America/New_York', 'HH:mm');
       const endTime = ev.isAllDayEvent() ? '' : Utilities.formatDate(ev.getEndTime(), Session.getScriptTimeZone() || 'America/New_York', 'HH:mm');
+      let notes = source.name || '';
+      if (ev.isAllDayEvent()) {
+        const endDay = Utilities.formatDate(ev.getAllDayEndDate(), Session.getScriptTimeZone() || 'America/New_York', 'yyyy-MM-dd');
+        const through = addDays(endDay, -1);
+        if (through > date) notes = (notes ? notes + ' · ' : '') + 'Through ' + through;
+      }
       const data = {
         title: ev.getTitle() || 'Calendar',
-        date: date,
-        time: time,
-        endTime: endTime,
-        owner: 'shared',
-        category: 'family',
-        source: 'gcal',
-        sourceId: '',
-        notes: desc.slice(0, 500),
-        gcalId: gid
+        date: date, time: time, endTime: endTime,
+        owner: source.owner || 'shared',
+        category: source.name || 'Google',
+        source: 'google', sourceId: '',
+        notes: notes.slice(0, 500),
+        gcalId: gid, calId: source.calendarId, color: source.color || '',
+        link: googleEventLink(gid, realId)
       };
-      const rowId = row ? row.id : shortId('gcal', gid);
-      writeDoc('events', rowId, Object.assign(row || {}, data));
+      const prior = findImported(rows, gid, source.calendarId);
+      const rowId = prior ? prior.id : shortId('gev', source.calendarId + '|' + gid);
+      writeDoc('events', rowId, Object.assign(prior || {}, data));
+      if (prior) {
+        prior.gcalId = gid;
+        prior.calId = source.calendarId;
+        prior.source = 'google';
+      } else rows.push(Object.assign({ id: rowId }, data));
       pulled++;
     });
+    rows.slice().forEach(function (row) {
+      if (row.source !== 'google') return;
+      if (String(row.calId) !== String(source.calendarId)) return;
+      if (!row.date || row.date < from || row.date > to) return;
+      if (seen[row.gcalId]) return;
+      deleteDoc('events', row.id);
+      row.source = 'deleted';
+      removed++;
+    });
+  });
+  return { ok: true, pulled: pulled, removed: removed, missing: missing, sources: sources.length };
+}
+
+function findImported(rows, gcalId, calId) {
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (String(row.gcalId) !== String(gcalId)) continue;
+    if (row.source !== 'google' && row.source !== 'gcal') continue;
+    if (!row.calId || String(row.calId) === String(calId)) return row;
   }
-  return { ok: true, pushed: pushed, pulled: pulled };
+  return null;
+}
+
+function googleEventLink(eventId, calendarId) {
+  const eid = Utilities.base64EncodeWebSafe(String(eventId) + ' ' + String(calendarId)).replace(/=+$/, '');
+  return 'https://calendar.google.com/calendar/event?eid=' + eid;
+}
+
+function googleCalendarSources() {
+  const saved = readAll('calendars');
+  const byKey = {};
+  saved.forEach(function (row) {
+    const id = String(row.calendarId || '').trim();
+    if (!id) return;
+    byKey[id.toLowerCase()] = {
+      id: row.id, calendarId: id, name: row.name || id, color: row.color || '',
+      owner: row.owner || 'shared', enabled: String(row.enabled) === 'no' ? 'no' : 'yes'
+    };
+  });
+  const props = PropertiesService.getScriptProperties();
+  const settings = readDoc('settings', 'hub') || {};
+  const extra = [props.getProperty('GOOGLE_CALENDAR_ID') || '', settings.calendarId || ''].concat(String(props.getProperty('GOOGLE_CALENDAR_IDS') || '').split(','));
+  const palette = ['#1f6b3a', '#3c7ea6', '#c4922a', '#b5523a', '#6b4c9a', '#2f6f4e'];
+  let n = saved.length;
+  extra.forEach(function (part) {
+    const id = String(part || '').trim();
+    if (!id || byKey[id.toLowerCase()]) return;
+    const color = palette[n % palette.length];
+    n++;
+    const rowId = shortId('cal', id);
+    const name = id.toLowerCase() === 'primary' ? 'Primary' : id;
+    writeDoc('calendars', rowId, { calendarId: id, name: name, color: color, owner: 'shared', enabled: 'yes' });
+    byKey[id.toLowerCase()] = { id: rowId, calendarId: id, name: name, color: color, owner: 'shared', enabled: 'yes' };
+  });
+  const list = [];
+  Object.keys(byKey).forEach(function (key) {
+    const row = byKey[key];
+    if (!row.color) row.color = palette[list.length % palette.length];
+    if (row.enabled !== 'no') list.push(row);
+  });
+  return list;
 }
 
 function calendarPlans(day) {
   const plans = [];
   readAll('events').forEach(function (ev) {
     if (!ev.date || ev.date < addDays(day, -1) || ev.date > addDays(day, 60)) return;
-    if (ev.source === 'gcal' || ev.source === 'bill' || ev.source === 'job') return;
+    if (ev.source === 'gcal' || ev.source === 'google' || ev.source === 'bill' || ev.source === 'job') return;
     plans.push(planFrom(ev.id, ev.title || 'Event', ev.date, ev.time, ev.endTime, ev.notes || ''));
   });
   const payments = readAll('billPayments');

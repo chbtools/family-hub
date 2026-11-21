@@ -86,7 +86,7 @@
       return widgetShell(id, item.size, "money/budgets", rows);
     }
     if (id === "events") {
-      const rows = dash.events.slice(0, 5).map(function (ev) {
+      const rows = shownCal(dash.events).slice(0, 5).map(function (ev) {
         return '<a class="item" href="#plan/calendar" data-go="plan/calendar"><div class="grow"><strong>' + U().esc(ev.title) + "</strong><p class=\"meta\">" + U().esc(U().shortDate(ev.date)) + (ev.time ? " · " + U().esc(ev.time) : "") + "</p></div></a>";
       }).join("") || '<p class="empty">Nothing in the next week.</p>';
       return widgetShell(id, item.size, "plan/calendar", '<div class="list">' + rows + "</div>");
@@ -370,7 +370,7 @@
   function agenda() {
     const L = Logic();
     const day = L.today();
-    const items = L.calendarEntries(App.state, day, L.addDays(day, 14));
+    const items = shownCal(L.calendarEntries(App.state, day, L.addDays(day, 14)));
     const list = items.map(function (item) {
       return '<div class="item"><div class="grow"><strong>' + U().esc(item.title) + "</strong><p class=\"meta\">" + U().esc(U().shortDate(item.date)) + (item.time ? " · " + U().esc(item.time) : "") + "</p></div>" + U().chip(item.source, item.source === "job" ? "farm" : item.source === "bill" ? "soon" : "") + "</div>";
     }).join("") || '<p class="empty">Clear for the next two weeks.</p>';
@@ -431,6 +431,39 @@
       html;
   }
 
+  function safeColor(value) {
+    return /^#[0-9A-Fa-f]{6}$/.test(String(value || "")) ? value : "";
+  }
+
+  function shownCal(items) {
+    const hide = App.calHide || {};
+    return items.filter(function (item) {
+      if (item.source === "google" || item.source === "gcal") return !hide[item.calId || ""];
+      return !hide.hub;
+    });
+  }
+
+  function calLegend() {
+    const hide = App.calHide || {};
+    const chips = ['<button type="button" class="btn cal-key' + (hide.hub ? " off" : "") + '" data-act="toggle-cal-view" data-id="hub"><i style="background:#1f6b3a"></i>Family Hub</button>'];
+    (App.state.calendars || []).forEach(function (cal) {
+      if (String(cal.enabled) === "no") return;
+      const color = safeColor(cal.color) || "#3c7ea6";
+      chips.push('<button type="button" class="btn cal-key' + (hide[cal.calendarId] ? " off" : "") + '" data-act="toggle-cal-view" data-id="' + U().esc(cal.calendarId) + '"><i style="background:' + color + '"></i>' + U().esc(cal.name || cal.calendarId) + "</button>");
+    });
+    return '<div class="row wrap cal-legend">' + chips.join("") + "</div>";
+  }
+
+  function eventLine(item) {
+    const color = safeColor(item.color);
+    const swatch = color ? '<i class="swatch" style="background:' + color + '"></i>' : "";
+    const title = item.readOnly && item.link
+      ? '<a href="' + U().esc(item.link) + '" target="_blank" rel="noopener">' + U().esc(item.title) + "</a>"
+      : "<strong>" + U().esc(item.title) + "</strong>";
+    const meta = U().esc(item.time || "") + (item.category ? " · " + U().esc(item.category) : "") + (item.readOnly ? " · Google" : "");
+    return '<div class="item">' + swatch + '<div class="grow">' + title + '<p class="meta">' + meta + "</p></div></div>";
+  }
+
   function calendar() {
     const L = Logic();
     const month = App.calMonth || L.monthKey(L.today());
@@ -443,18 +476,18 @@
       const cells = L.monthGrid(month);
       const from = cells[0].date;
       const to = cells[cells.length - 1].date;
-      const items = L.calendarEntries(App.state, from, to);
+      const items = shownCal(L.calendarEntries(App.state, from, to));
       body = '<div class="cal"><span class="dow">Sun</span><span class="dow">Mon</span><span class="dow">Tue</span><span class="dow">Wed</span><span class="dow">Thu</span><span class="dow">Fri</span><span class="dow">Sat</span>' + cells.map(function (cell) {
         const mine = items.filter(function (item) { return item.date === cell.date; }).slice(0, 3);
         const on = cell.date === (App.calDay || L.today()) ? " on" : "";
-        return '<button type="button" class="' + (cell.inMonth ? "" : "off") + on + '" data-act="cal-day" data-date="' + cell.date + '"><strong>' + Number(cell.date.slice(8)) + '</strong><span class="dots">' + mine.map(function (item) { return '<i class="' + (item.source === "bill" ? "bill" : item.source === "job" ? "job" : item.source === "trip" ? "trip" : "") + '"></i>'; }).join("") + "</span></button>";
+        return '<button type="button" class="' + (cell.inMonth ? "" : "off") + on + '" data-act="cal-day" data-date="' + cell.date + '"><strong>' + Number(cell.date.slice(8)) + '</strong><span class="dots">' + mine.map(function (item) { const color = safeColor(item.color); return '<i class="' + (item.source === "bill" ? "bill" : item.source === "job" ? "job" : item.source === "trip" ? "trip" : "") + '"' + (color ? ' style="background:' + color + '"' : "") + "></i>"; }).join("") + "</span></button>";
       }).join("") + "</div>";
       const picked = items.filter(function (item) { return item.date === (App.calDay || L.today()); });
-      body += '<h3>' + U().esc(U().longDate(App.calDay || L.today())) + "</h3><div class=\"list\">" + (picked.map(function (item) { return '<div class="item"><div class="grow"><strong>' + U().esc(item.title) + "</strong><p class=\"meta\">" + U().esc(item.time || item.notes || item.category) + "</p></div></div>"; }).join("") || '<p class="empty">Nothing that day.</p>') + "</div>";
+      body += '<h3>' + U().esc(U().longDate(App.calDay || L.today())) + "</h3><div class=\"list\">" + (picked.map(eventLine).join("") || '<p class="empty">Nothing that day.</p>') + "</div>";
     } else if (mode === "week") {
       const anchor = App.calDay || L.today();
       const days = L.weekDays(anchor);
-      const items = L.calendarEntries(App.state, days[0], days[6]);
+      const items = shownCal(L.calendarEntries(App.state, days[0], days[6]));
       body = days.map(function (date) {
         const mine = items.filter(function (item) { return item.date === date; });
         return '<article class="card"><h3>' + U().esc(U().shortDate(date)) + "</h3>" + (mine.map(function (item) { return "<p>" + U().esc(item.title) + "</p>"; }).join("") || '<p class="muted">Clear</p>') + "</article>";
@@ -462,10 +495,11 @@
       body = '<div class="grid-2">' + body + "</div>";
     } else {
       const anchor = App.calDay || L.today();
-      const items = L.calendarEntries(App.state, anchor, L.addDays(anchor, 21));
-      body = '<div class="list">' + (items.map(function (item) { return '<div class="item"><div class="grow"><strong>' + U().esc(item.title) + "</strong><p class=\"meta\">" + U().esc(U().shortDate(item.date)) + (item.time ? " " + U().esc(item.time) : "") + "</p></div>" + U().chip(item.source || item.category, item.source === "job" ? "farm" : item.source === "bill" ? "soon" : "") + "</div>"; }).join("") || '<p class="empty">Nothing scheduled.</p>') + "</div>";
+      const items = shownCal(L.calendarEntries(App.state, anchor, L.addDays(anchor, 21)));
+      body = '<div class="list">' + (items.map(eventLine).join("") || '<p class="empty">Nothing scheduled.</p>') + "</div>";
     }
-    return head("Calendar", "Bills and scheduled farm jobs show up here on their own.") +
+    return head("Calendar", "Family Hub items and Google calendars on one page. Google events open in Google and are not edited here.") +
+      calLegend() +
       '<div class="row wrap"><button class="btn" type="button" data-act="cal-shift" data-dir="-1">Prev</button><strong>' + U().esc(month) + '</strong><button class="btn" type="button" data-act="cal-shift" data-dir="1">Next</button>' + modes + '<button class="primary" type="button" data-act="add-event">Add event</button><button class="btn" type="button" data-act="cal-sync">Sync Google Calendar</button></div>' + body;
   }
 
@@ -830,6 +864,7 @@
       U().field("Digest hour (0-23)", "digestHour", row.digestHour == null ? 6 : row.digestHour, "number") +
       U().field("Google Calendar id", "calendarId", row.calendarId || "") +
       U().select("Calendar sync", "calendarSync", row.calendarSync || "off", [["off", "Off"], ["push", "Push Family Hub to Google"], ["both", "Both ways"]]) +
+      '<p class="meta">Push still uses the one calendar id above. Import reads every calendar listed below, plus GOOGLE_CALENDAR_IDS.</p>' +
       U().field("Mileage rate override", "mileageRate", row.mileageRate || "") +
       '<p class="meta">Leave the rate blank to use the 2026 IRS business rates: 72.5¢ per mile through June 30 and 76¢ after that. A number here replaces both.</p>' +
       U().field("Bill reminder, days ahead", "billLeadDays", row.billLeadDays === "" || row.billLeadDays == null ? 3 : row.billLeadDays, "number") +
@@ -838,6 +873,7 @@
       U().field("Equipment wear $ per hour", "wearRate", row.wearRate === "" || row.wearRate == null ? 8 : row.wearRate, "number") +
       '<p><button class="btn" type="button" data-act="enable-notifications">Allow phone notifications</button></p>' +
       '<button class="primary" type="submit">Save settings</button></form>' +
+      calendarSettings() +
       '<form class="card stack" data-act="save-url"><h3>Google Sheet</h3>' +
       U().field("Web app URL", "url", (function () { try { return localStorage.getItem("hub-script-url") || ""; } catch (e) { return ""; } })()) +
       '<p class="meta">Paste the /exec address from Apps Script. It is saved on this phone only. Leave it blank and save to go back to sample data. To use the same address on every phone, also paste it into index.html where it says HUB_SCRIPT_URL.</p>' +
@@ -845,6 +881,20 @@
       '<article class="card stack"><h3>Backup</h3><div class="row wrap"><button class="btn" type="button" data-act="export-json">Download JSON</button><button class="btn" type="button" data-act="export-tx">Transactions CSV</button><button class="btn" type="button" data-act="export-tax">Farm tax CSV</button></div>' +
       (App.mode === "live" ? '<button class="btn" type="button" data-act="test-digest">Send digest now</button>' : '<button class="btn" type="button" data-act="reset-sample">Reset sample data</button>') +
       '<p class="meta">' + (App.mode === "live" ? "This phone is sharing the Google Sheet." : "Sample data is stored only on this phone.") + "</p></article>";
+  }
+
+  function calendarSettings() {
+    const rows = (App.state.calendars || []).map(function (cal) {
+      const on = String(cal.enabled) !== "no";
+      const color = safeColor(cal.color) || "#3c7ea6";
+      return '<div class="item"><i class="swatch" style="background:' + color + '"></i><div class="grow"><strong>' + U().esc(cal.name || cal.calendarId) + '</strong><p class="meta">' + U().esc(cal.calendarId) + " · " + U().esc(cal.owner || "shared") + '</p></div><button class="btn" type="button" data-act="toggle-gcal" data-id="' + U().esc(cal.id) + '">' + (on ? "On" : "Off") + "</button></div>";
+    }).join("") || '<p class="empty">None yet. Add a calendar id, or set GOOGLE_CALENDAR_IDS on the script.</p>';
+    return '<article class="card stack"><h3>Google calendars</h3><p class="meta">Events from these calendars show with Family Hub. Turn one off to stop importing it. Google events stay read-only here.</p><div class="list">' + rows + '</div><form class="stack" data-act="add-gcal">' +
+      U().field("Calendar id", "calendarId", "") +
+      U().field("Name", "name", "") +
+      U().select("Whose", "owner", "shared", [["shared", "Shared"]].concat(U().userOptions(App.state))) +
+      U().field("Color", "color", "#3c7ea6") +
+      '<button class="primary" type="submit">Add calendar</button></form><p><button class="btn" type="button" data-act="cal-sync">Sync now</button></p></article>';
   }
 
   function search() {

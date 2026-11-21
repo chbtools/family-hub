@@ -221,6 +221,17 @@ test("bank rules, egg price, quote, and tax dates", () => {
   assert.ok(lines.some((line) => line.line === "16" && line.kind === "expense"));
 });
 
+test("a Google event keeps its calendar color and stays read-only", () => {
+  const state = sample();
+  const choir = state.events.find((row) => row.id === "ev_choir");
+  const items = L.calendarEntries(state, choir.date, choir.date);
+  const hit = items.find((item) => item.title === "Choir practice");
+  assert.equal(hit.source, "google");
+  assert.equal(hit.readOnly, true);
+  assert.equal(hit.color, "#3c7ea6");
+  assert.equal(hit.calId, "partner@example.com");
+});
+
 test("Code.gs collections match the client schema", () => {
   const src = fs.readFileSync(path.join(__dirname, "..", "Code.gs"), "utf8");
   const block = src.slice(src.indexOf("const COLUMNS"), src.indexOf("const NUMERIC"));

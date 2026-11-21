@@ -1472,6 +1472,21 @@
         else toast((res && res.error) || "The digest was not sent.");
       });
     },
+    "toggle-cal-view": function (el) {
+      App.calHide = App.calHide || {};
+      const id = el.dataset.id;
+      if (id === "hub") App.calHide.hub = !App.calHide.hub;
+      else App.calHide[id] = !App.calHide[id];
+      try { localStorage.setItem("hub-cal-hide", JSON.stringify(App.calHide)); } catch (e) {}
+      render();
+    },
+    "toggle-gcal": function (el) {
+      const row = L().byId(App.state.calendars, el.dataset.id);
+      if (!row) return;
+      change(function (api) {
+        api.upsert("calendars", { id: row.id, enabled: String(row.enabled) === "no" ? "yes" : "no" });
+      }).then(function () { render(); });
+    },
     "cal-sync": function () {
       if (App.mode !== "live") { toast("Calendar sync runs after the Google Sheet is connected."); return; }
       const settings = (App.state.settings || [])[0] || {};
@@ -1657,6 +1672,17 @@
     if (act === "save-upkeep-log") return saveUpkeepLog(data);
     if (act === "save-doc") return saveDoc(data);
     if (act === "save-routine") return saveRoutine(data);
+    if (act === "add-gcal") {
+      const id = String(data.calendarId || "").trim();
+      if (!id) { toast("Enter a calendar id."); return; }
+      const color = /^#[0-9A-Fa-f]{6}$/.test(data.color || "") ? data.color : "#3c7ea6";
+      await change(function (api) {
+        api.upsert("calendars", { id: L().uid("cal"), calendarId: id, name: data.name || (id.toLowerCase() === "primary" ? "Primary" : id), color: color, owner: data.owner || "shared", enabled: "yes" });
+      });
+      toast("Calendar added. Sync now to pull its events.");
+      render();
+      return;
+    }
     if (act === "save-settings") {
       await change(function (api) {
         api.upsert("settings", {
@@ -1842,6 +1868,7 @@
     App.calDay = L().today();
     App.calMode = window.innerWidth < 800 ? "agenda" : "month";
     App.route = (location.hash || "#home").slice(1) || "home";
+    try { App.calHide = JSON.parse(localStorage.getItem("hub-cal-hide") || "{}"); } catch (e) { App.calHide = {}; }
     if (!location.hash) history.replaceState(null, "", "#home");
     if (App.mode === "sample") {
       App.devices = globalThis.HubSample.demoDevices();

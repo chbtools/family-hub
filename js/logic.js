@@ -22,7 +22,8 @@
     milestones: ["id", "goalId", "name", "done", "dueDate", "sort"],
     projects: ["id", "name", "area", "status", "budget", "spent", "owner", "startDate", "targetDate", "notes"],
     tasks: ["id", "projectId", "title", "assignee", "status", "dueDate", "notes"],
-    events: ["id", "title", "date", "time", "endTime", "owner", "category", "source", "sourceId", "notes", "gcalId"],
+    events: ["id", "title", "date", "time", "endTime", "owner", "category", "source", "sourceId", "notes", "gcalId", "calId", "color", "link"],
+    calendars: ["id", "calendarId", "name", "color", "owner", "enabled"],
     lists: ["id", "name", "kind", "sort"],
     listItems: ["id", "listId", "name", "aisle", "qty", "checked", "staple", "addedBy", "createdAt"],
     chores: ["id", "title", "assignee", "dueDate", "cadence", "status", "area", "notes", "doneAt", "doneBy"],
@@ -403,7 +404,8 @@
       if (!ev.date || ev.date < from || ev.date > to) return;
       items.push({
         id: ev.id, date: ev.date, time: ev.time || "", title: ev.title, owner: ev.owner || "",
-        category: ev.category || "family", source: ev.source || "manual", sourceId: ev.id, notes: ev.notes || ""
+        category: ev.category || "family", source: ev.source || "manual", sourceId: ev.id, notes: ev.notes || "",
+        color: ev.color || "", link: ev.link || "", calId: ev.calId || "", readOnly: ev.source === "google"
       });
     });
     (state.bills || []).forEach(function (bill) {
