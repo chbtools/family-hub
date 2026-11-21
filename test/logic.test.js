@@ -120,6 +120,82 @@ test("2026 mileage uses the mid-year IRS rates unless a rate is saved", () => {
   assert.equal(L.mileageValue(rows, 0.5).deduction, 10);
 });
 
+test("Rocket Money payee falls back and merchant names match across punctuation", () => {
+  const text = [
+    "Date,Original Date,Account Name,Institution Name,Name,Custom Name,Amount,Description,Category,Note,Ignored From",
+    "11/21/2026,11/21/2026,SECU Checking,SECU,WAL-MART #1234,,12.34,POS PURCHASE,Groceries,,,",
+    "11/21/2026,11/21/2026,SECU Checking,SECU,,Food Lion,8.00,ignored name,Groceries,,,",
+    "11/22/2026,11/22/2026,SECU Checking,SECU,,,4.00,SHELL OIL,Gas,,,"
+  ].join("\n");
+  const rows = L.importTransactions(text);
+  assert.equal(rows[0].payee, "WAL-MART #1234");
+  assert.equal(rows[0].amount, -12.34);
+  assert.equal(rows[1].payee, "Food Lion");
+  assert.equal(rows[2].payee, "SHELL OIL");
+  assert.equal(L.payeesSimilar("Walmart", "WAL-MART #1234"), true);
+  assert.equal(L.payeesSimilar("Walmart", "POS PURCHASE WAL-MART #1234"), true);
+  assert.equal(L.payeesSimilar("Walmart", "SHELL OIL"), false);
+});
+
+test("duplicate detection matches a blank payee by amount and date, and keeps same-file repeats", () => {
+  const sheet = [{ date: "2026-11-21", amount: -12.34, payee: "WM SUPERCENTER", externalId: "secu-wm" }];
+  const blank = L.planCsvImport(sheet, [{ date: "2026-11-21", amount: -12.34, payee: "" }], []);
+  assert.equal(blank.skipped.length, 1);
+  const named = L.planCsvImport(sheet, [{ date: "2026-11-20", amount: -12.34, payee: "WAL-MART #1234" }], []);
+  assert.equal(named.skipped.length, 1);
+  const repeats = L.planCsvImport([], [
+    { date: "2026-11-21", amount: -4, payee: "Coffee Shop" },
+    { date: "2026-11-21", amount: -4, payee: "Hardware" }
+  ], []);
+  assert.equal(repeats.accepted.length, 2);
+  assert.equal(repeats.skipped.length, 0);
+  const sameStore = L.planCsvImport([], [
+    { date: "2026-11-21", amount: -4, payee: "WAL-MART #1" },
+    { date: "2026-11-22", amount: -4, payee: "Walmart" }
+  ], []);
+  assert.equal(sameStore.accepted.length, 1);
+  assert.equal(sameStore.skipped.length, 1);
+});
+
+test("a Rocket Money file that only matches with the opposite sign is flipped", () => {
+  const existing = [
+    { date: "2026-11-01", amount: -10, payee: "A", externalId: "secu-a" },
+    { date: "2026-11-02", amount: -20, payee: "B", externalId: "secu-b" },
+    { date: "2026-11-03", amount: -30, payee: "C", externalId: "secu-c" }
+  ];
+  const already = L.planCsvImport(existing, existing.map((row) => ({ date: row.date, amount: row.amount, payee: row.payee, rocket: true })), []);
+  assert.equal(already.signNote, "");
+  assert.equal(already.skipped.length, 3);
+  const backwards = L.planCsvImport(existing, existing.map((row) => ({ date: row.date, amount: -row.amount, payee: row.payee, rocket: true })), []);
+  assert.ok(backwards.signNote);
+  assert.equal(backwards.skipped.length, 3);
+  assert.equal(backwards.accepted.length, 0);
+  const plain = L.planCsvImport(existing, existing.map((row) => ({ date: row.date, amount: -row.amount, payee: row.payee })), []);
+  assert.equal(plain.signNote, "");
+  assert.equal(plain.accepted.length, 3);
+});
+
+test("cleanup selection never includes the bank row and starts with nothing checked", () => {
+  const txs = [
+    { id: "bank1", date: "2026-11-21", amount: -12.34, payee: "WAL-MART #1234", externalId: "secu-x", refType: "import" },
+    { id: "csv1", date: "2026-11-21", amount: -12.34, payee: "Walmart", refType: "csv" },
+    { id: "csv2", date: "2026-11-21", amount: -9, payee: "Other", refType: "csv", accountId: "acct" }
+  ];
+  const accounts = [{ id: "acct", source: "bank", name: "SECU" }];
+  const pairs = L.duplicatePairs(txs, accounts);
+  assert.equal(pairs.length, 1);
+  assert.equal(pairs[0].csvId, "csv1");
+  assert.equal(pairs[0].bankId, "bank1");
+  assert.deepEqual(L.cleanupIds(pairs, []), []);
+  assert.deepEqual(L.cleanupIds(pairs, ["csv1"]), ["csv1"]);
+  assert.deepEqual(L.cleanupIds(pairs, ["bank1"]), []);
+  assert.deepEqual(L.cleanupIds(pairs, ["csv1", "bank1", "nope"]), ["csv1"]);
+  assert.equal(L.duplicatePairs([
+    { id: "csvA", refType: "csv", accountId: "acct", date: "2026-11-01", amount: -1, payee: "X" },
+    { id: "csvB", refType: "csv", accountId: "acct", date: "2026-11-01", amount: -1, payee: "X" }
+  ], accounts).length, 0);
+});
+
 test("Rocket Money spending is flipped and duplicates are skipped", () => {
   const text = [
     "Date,Original Date,Account Type,Account Name,Account Number,Institution Name,Name,Custom Name,Amount,Description,Category,Note,Ignored From,Tax Deductible,Extra",

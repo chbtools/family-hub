@@ -192,7 +192,7 @@
       return '<button class="btn' + (book === name ? " primary" : "") + '" type="button" data-act="book" data-book="' + name + '">' + name + "</button>";
     }).join(" ");
     return (forceBook ? farmNav() : moneyNav()) + head(forceBook ? "Farm expenses and income" : "Transactions", "Tag each one Personal or Farm.") +
-      '<div class="row wrap"><label class="field"><span>Month</span><input id="monthPick" type="month" value="' + U().esc(month) + '"></label>' + books + '<button class="primary" type="button" data-act="add-tx" data-book="' + U().esc(forceBook || "Personal") + '">Add</button><button class="btn" type="button" data-act="pick-csv">Import CSV</button><button class="btn" type="button" data-act="snap-receipt">Snap receipt</button></div>' +
+      '<div class="row wrap"><label class="field"><span>Month</span><input id="monthPick" type="month" value="' + U().esc(month) + '"></label>' + books + '<button class="primary" type="button" data-act="add-tx" data-book="' + U().esc(forceBook || "Personal") + '">Add</button><button class="btn" type="button" data-act="pick-csv">Import CSV</button><button class="btn" type="button" data-act="snap-receipt">Snap receipt</button>' + (forceBook ? "" : '<a class="btn" href="#money/duplicates" data-go="money/duplicates">Find duplicates</a>') + "</div>" +
       '<form class="search-box" data-act="noop"><input id="txQuery" placeholder="Search payee or memo" value="' + U().esc(App.txQuery || "") + '"></form>' +
       '<div class="list">' + list + "</div>";
   }
@@ -818,6 +818,26 @@
     return head("Documents", "Links and expiration dates only. Do not put account numbers or policy numbers in the notes.") + '<p><button class="primary" type="button" data-act="add-doc">Add document</button> <button class="btn" type="button" data-act="upload-doc">Upload a file</button></p>' + docsBody(false);
   }
 
+  function txLine(tx) {
+    const L = Logic();
+    if (!tx) return "";
+    return U().esc(U().shortDate(tx.date)) + " · " + U().esc(tx.payee || tx.memo || "No payee") + " · " + U().esc(L.money(tx.amount));
+  }
+
+  function duplicatesPage() {
+    const L = Logic();
+    const pairs = L.duplicatePairs(App.state.transactions, App.state.accounts);
+    const rows = pairs.map(function (pair) {
+      const csv = L.byId(App.state.transactions, pair.csvId);
+      const bank = L.byId(App.state.transactions, pair.bankId);
+      return '<div class="item dup-pair"><label class="checkline"><input type="checkbox" name="drop" value="' + U().esc(pair.csvId) + '"><span class="sr">Remove this imported row</span></label><div class="grow"><strong>Imported</strong><p class="meta">' + txLine(csv) + '</p></div><div class="grow"><strong>Bank</strong><p class="meta">' + txLine(bank) + "</p></div></div>";
+    }).join("");
+    const body = pairs.length
+      ? '<form class="stack" data-act="preview-dup-delete"><p class="meta">Nothing is checked. Tick an imported row to remove it. The bank row stays.</p><div class="list">' + rows + '</div><div class="row wrap"><button class="btn" type="button" data-act="tick-dups" data-on="yes">Tick all imported</button><button class="btn" type="button" data-act="tick-dups" data-on="no">Clear</button><button class="danger" type="submit">Delete selected</button></div></form>'
+      : '<p class="empty">No imported row matches a bank transaction.</p>';
+    return moneyNav() + head("Find duplicates", "Imported rows that match a SECU or other bank transaction.") + body;
+  }
+
   function rulesPage() {
     const L = Logic();
     const rows = (App.state.merchantRules || []).map(function (rule) {
@@ -917,6 +937,7 @@
     if (route === "home") return home();
     if (route === "money") return money();
     if (route === "money/transactions") return transactions();
+    if (route === "money/duplicates") return duplicatesPage();
     if (route === "money/bills") return bills();
     if (route === "money/budgets") return budgets();
     if (route === "money/debts") return debts();

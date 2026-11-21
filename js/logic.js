@@ -625,7 +625,10 @@
     const rocket = isRocketMoney(header);
     const iDate = col(["date", "posted", "posted date"]);
     const iAmt = col(["amount", "amt"]);
-    const iPayee = rocket ? col(["custom name", "name", "description"]) : col(["payee", "description", "name", "merchant"]);
+    const iPayee = col(["payee", "description", "name", "merchant"]);
+    const iCustom = col(["custom name"]);
+    const iName = col(["name"]);
+    const iDesc = col(["description"]);
     const iMemo = rocket ? col(["note", "memo", "notes"]) : col(["memo", "note", "notes"]);
     const iCat = col(["category", "cat"]);
     const iBook = col(["book", "split", "household"]);
@@ -633,6 +636,7 @@
     const iIgnore = col(["ignored from"]);
     const iAccount = col(["account name", "account"]);
     const iInstitution = col(["institution name", "institution"]);
+    function cell(cells, idx) { return idx >= 0 ? String(cells[idx] || "").trim() : ""; }
     const start = iDate >= 0 || iAmt >= 0 ? 1 : 0;
     const out = [];
     for (let r = start; r < table.length; r++) {
@@ -653,70 +657,165 @@
         date = iso(+year, +mdY[1], +mdY[2]);
       }
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !amount) continue;
+      const payee = rocket ? (cell(cells, iCustom) || cell(cells, iName) || cell(cells, iDesc)) : cell(cells, iPayee);
       out.push({
         date: date,
         amount: round2(amount),
-        payee: iPayee >= 0 ? String(cells[iPayee] || "").trim() : "",
+        payee: payee,
         memo: iMemo >= 0 ? String(cells[iMemo] || "").trim() : "",
         category: iCat >= 0 ? String(cells[iCat] || "").trim() : "",
         book: book,
         type: amount >= 0 ? "income" : "expense",
         accountName: iAccount >= 0 ? String(cells[iAccount] || "").trim() : "",
-        institution: iInstitution >= 0 ? String(cells[iInstitution] || "").trim() : ""
+        institution: iInstitution >= 0 ? String(cells[iInstitution] || "").trim() : "",
+        rocket: rocket
       });
     }
     return out;
   }
 
-  function payeeKey(value) {
-    return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+  /* Lowercase, drop punctuation so WAL-MART is walmart, drop store numbers and
+     leading bank words, then the caller can also compare with spaces removed. */
+  function merchantKey(value) {
+    let text = String(value || "").toLowerCase();
+    text = text.replace(/#\s*\d+/g, " ");
+    text = text.replace(/[^a-z0-9\s]+/g, "");
+    text = text.replace(/\d+/g, " ");
+    text = text.replace(/\s+/g, " ").trim();
+    const leads = ["debit card purchase", "debit card", "credit card", "check card", "checkcard", "purchase", "pos", "ach", "visa", "mastercard"];
+    let changed = true;
+    while (changed && text) {
+      changed = false;
+      for (let i = 0; i < leads.length; i++) {
+        const lead = leads[i];
+        if (text === lead || text.indexOf(lead + " ") === 0) {
+          text = text.slice(lead.length).trim();
+          changed = true;
+          break;
+        }
+      }
+    }
+    return text;
   }
 
   function payeesSimilar(a, b) {
-    const left = payeeKey(a);
-    const right = payeeKey(b);
+    const left = merchantKey(a);
+    const right = merchantKey(b);
     if (!left || !right) return false;
-    if (left.indexOf(right) >= 0 || right.indexOf(left) >= 0) return true;
+    const compactLeft = left.replace(/\s+/g, "");
+    const compactRight = right.replace(/\s+/g, "");
+    if (compactLeft === compactRight) return true;
+    if (compactLeft.length >= 4 && compactRight.length >= 4 && (compactLeft.indexOf(compactRight) >= 0 || compactRight.indexOf(compactLeft) >= 0)) return true;
     const lt = left.split(" ").filter(function (word) { return word.length > 2; });
     const rt = right.split(" ").filter(function (word) { return word.length > 2; });
-    if (!lt.length || !rt.length) return left === right;
+    if (!lt.length || !rt.length) return false;
     let overlap = 0;
     lt.forEach(function (word) { if (rt.indexOf(word) >= 0) overlap++; });
     return overlap > 0 && overlap / Math.min(lt.length, rt.length) >= 0.5;
   }
 
-  function accountKey(row, accounts) {
-    if (row.accountName) return String(row.accountName).trim().toLowerCase();
-    const id = String(row.accountId || "");
-    if (id && accounts) {
-      for (let i = 0; i < accounts.length; i++) {
-        if (accounts[i].id === id) return String(accounts[i].name || "").trim().toLowerCase();
-      }
-    }
-    return id.toLowerCase();
-  }
-
-  /* Same calendar day, plus or minus 2, same cents, and a similar payee.
-     A blank payee matches only the same account. */
-  function csvDuplicate(existing, row, accounts) {
+  /* Against the sheet, the same cents within 1 day is a duplicate even when a
+     payee is blank or the names differ. A similar payee still matches out to 2 days.
+     Inside one file, only a similar payee collapses a row, so two different
+     same-day purchases both stay. */
+  function csvDuplicate(existing, row, accounts, scope) {
     if (round2(existing.amount) !== round2(row.amount)) return false;
     if (!existing.date || !row.date) return false;
     const days = Math.abs(diffDays(existing.date, row.date));
-    if (!isFinite(days) || days > 2) return false;
-    if (!payeeKey(row.payee)) return accountKey(existing, accounts) !== "" && accountKey(existing, accounts) === accountKey(row, accounts);
-    return payeesSimilar(existing.payee, row.payee);
+    if (!isFinite(days)) return false;
+    if (days <= 2 && payeesSimilar(existing.payee, row.payee)) return true;
+    if (scope === "file" || days > 1) return false;
+    return true;
+  }
+
+  function flippedAmount(row) {
+    const amount = round2(-num(row.amount));
+    return Object.assign({}, row, { amount: amount, type: amount >= 0 ? "income" : "expense" });
   }
 
   function planCsvImport(existing, rows, accounts) {
+    const list = rows || [];
+    const saved = existing || [];
+    let used = list;
+    let signNote = "";
+    const rocket = list.some(function (row) { return row.rocket; });
+    if (rocket && saved.length && list.length) {
+      let sameOnly = 0;
+      let oppositeOnly = 0;
+      list.forEach(function (row) {
+        const hitSame = saved.some(function (item) { return csvDuplicate(item, row, accounts, "sheet"); });
+        const flipped = flippedAmount(row);
+        const hitOpposite = saved.some(function (item) { return csvDuplicate(item, flipped, accounts, "sheet"); });
+        if (hitSame && !hitOpposite) sameOnly++;
+        else if (hitOpposite && !hitSame) oppositeOnly++;
+      });
+      if (oppositeOnly > sameOnly && oppositeOnly * 2 > list.length) {
+        used = list.map(flippedAmount);
+        signNote = "Amounts were reversed so they line up with transactions already saved. Rocket Money's help page does not state the sign.";
+      }
+    }
     const accepted = [];
     const skipped = [];
-    (rows || []).forEach(function (row) {
-      const dup = (existing || []).some(function (item) { return csvDuplicate(item, row, accounts); })
-        || accepted.some(function (item) { return csvDuplicate(item, row, accounts); });
+    used.forEach(function (row) {
+      const dup = saved.some(function (item) { return csvDuplicate(item, row, accounts, "sheet"); })
+        || accepted.some(function (item) { return csvDuplicate(item, row, accounts, "file"); });
       if (dup) skipped.push(row);
       else accepted.push(row);
     });
-    return { accepted: accepted, skipped: skipped };
+    return { accepted: accepted, skipped: skipped, signNote: signNote };
+  }
+
+  function isBankSide(tx, accounts) {
+    if (!tx || tx.refType === "csv") return false;
+    const ext = String(tx.externalId || "");
+    if (ext.indexOf("secu-") === 0 || tx.refType === "import") return true;
+    const id = String(tx.accountId || "");
+    if (!id || !accounts) return false;
+    for (let i = 0; i < accounts.length; i++) {
+      if (accounts[i].id === id && String(accounts[i].source) === "bank") return true;
+    }
+    return false;
+  }
+
+  function duplicatePairs(transactions, accounts) {
+    const bank = [];
+    const csv = [];
+    (transactions || []).forEach(function (tx) {
+      if (tx.refType === "csv") csv.push(tx);
+      else if (isBankSide(tx, accounts)) bank.push(tx);
+    });
+    const used = {};
+    const pairs = [];
+    csv.forEach(function (row) {
+      for (let i = 0; i < bank.length; i++) {
+        const other = bank[i];
+        if (!other.id || used[other.id]) continue;
+        if (!csvDuplicate(other, row, accounts, "sheet")) continue;
+        used[other.id] = true;
+        pairs.push({ csvId: row.id, bankId: other.id });
+        break;
+      }
+    });
+    return pairs;
+  }
+
+  function cleanupIds(pairs, checked) {
+    const csvIds = {};
+    const bankIds = {};
+    (pairs || []).forEach(function (pair) {
+      if (pair.csvId) csvIds[pair.csvId] = true;
+      if (pair.bankId) bankIds[pair.bankId] = true;
+    });
+    const list = Array.isArray(checked) ? checked : String(checked || "").split(",");
+    const out = [];
+    const seen = {};
+    list.forEach(function (id) {
+      const key = String(id || "").trim();
+      if (!key || seen[key] || bankIds[key] || !csvIds[key]) return;
+      seen[key] = true;
+      out.push(key);
+    });
+    return out;
   }
 
   function searchAll(state, query) {
@@ -920,6 +1019,10 @@
     toCsv: toCsv,
     importTransactions: importTransactions,
     planCsvImport: planCsvImport,
+    merchantKey: merchantKey,
+    payeesSimilar: payeesSimilar,
+    duplicatePairs: duplicatePairs,
+    cleanupIds: cleanupIds,
     searchAll: searchAll,
     taxRows: taxRows,
     chunkOps: chunkOps,
