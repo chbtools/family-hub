@@ -219,8 +219,34 @@ html[data-theme="dark"] .fab { color: #102113; }
 .dots i.bill { background: var(--gold); }
 .dots i.job { background: var(--blue); }
 .dots i.trip { background: #6b4c9a; }
-a.countdown { text-decoration: none; color: inherit; display: flex; justify-content: space-between; gap: 12px; align-items: center; margin: 0 0 12px; }
-.countdown .when { font-family: var(--display); font-size: 1.6rem; line-height: 1.1; text-align: right; }
+a.countdown, .countdown-in { text-decoration: none; color: inherit; display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+.countdown .when, .countdown-in .when { font-family: var(--display); font-size: 1.45rem; line-height: 1.1; text-align: right; }
+#widgets { display: grid; gap: 12px; grid-template-columns: 1fr; }
+.widget-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; flex-wrap: wrap; }
+.widget-top h3 { margin: 0; }
+.edit-tools, .gallery, .edit-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.gallery { margin: 8px 0 12px; }
+.grip { cursor: grab; }
+@media (max-width: 799px) {
+  .widget, .edit-tools .btn { scroll-margin-bottom: calc(var(--nav-h) + 16px); }
+}
+.drag-ghost { opacity: 0.55; }
+.widget .item, .widget .btn { transition: background 0.15s ease, transform 0.15s ease; }
+body:not(.editing) .widget { transition: transform 0.16s ease; }
+@media (hover: hover) {
+  body:not(.editing) .widget:hover { transform: translateY(-2px); }
+}
+@media (min-width: 700px) {
+  #widgets { grid-template-columns: repeat(4, 1fr); }
+  .widget.size-sm, .widget.size-md { grid-column: span 2; }
+  .widget.size-lg { grid-column: span 4; }
+}
+@media (min-width: 1100px) {
+  #widgets { grid-template-columns: repeat(4, 1fr); }
+  .widget.size-sm { grid-column: span 1; }
+  .widget.size-md { grid-column: span 2; }
+  .widget.size-lg { grid-column: span 4; }
+}
 .device { display: flex; flex-direction: column; gap: 8px; }
 .device .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .device .controls .meta { flex-basis: 100%; margin: 4px 0 0; }

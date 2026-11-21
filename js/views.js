@@ -28,6 +28,25 @@
     return subnav([["today", "Agenda"], ["today/chores", "Chores"], ["today/meals", "Meals"], ["today/shop", "Shopping"]]);
   }
 
+  function widgetTitle(id) {
+    const row = Logic().WIDGETS.filter(function (item) { return item[0] === id; })[0];
+    return row ? row[1] : id;
+  }
+
+  function sizeWord(size) {
+    if (size === "sm") return "S";
+    if (size === "lg") return "Full";
+    return "M";
+  }
+
+  function widgetShell(id, size, route, body) {
+    const edit = App.editing ? '<div class="edit-tools"><button class="btn grip" type="button" aria-label="Drag to move">Move</button><button class="btn" type="button" data-act="size-widget" data-id="' + id + '" aria-label="Change size">' + sizeWord(size) + '</button><button class="btn" type="button" data-act="hide-widget" data-id="' + id + '">Hide</button></div>' : "";
+    const title = route
+      ? '<a href="#' + route + '" data-go="' + route + '">' + U().esc(widgetTitle(id)) + "</a>"
+      : U().esc(widgetTitle(id));
+    return '<article class="card widget size-' + size + '" data-widget="' + id + '"><div class="widget-top"><h3>' + title + "</h3>" + edit + "</div>" + body + "</article>";
+  }
+
   function home() {
     const L = Logic();
     const day = L.today();
@@ -35,54 +54,86 @@
     const hour = new Date().getHours();
     const hello = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
     const name = L.userName(App.state, App.userId);
-    const alerts = [];
-    dash.bills.filter(function (b) { return b.status === "overdue"; }).forEach(function (b) {
-      alerts.push(U().chip("Overdue", "overdue") + " " + U().esc(b.bill.name) + " · " + U().esc(L.money(b.bill.amount)) + " · " + U().esc(U().rel(b.days)));
-    });
-    dash.budgets.forEach(function (b) {
-      alerts.push(U().chip(b.status === "over" ? "Over budget" : "Budget", b.status) + " " + U().esc(b.name) + " · " + U().esc(L.money(b.spent)) + " of " + U().esc(L.money(b.limit)));
-    });
-    const stats = [
-      ["Net worth", L.money(dash.net.net)],
-      ["Bills soon", String(dash.bills.length)],
-      ["To buy", String(dash.shopping)],
-      ["Eggs, 7 days", String(dash.eggs.total)],
-      ["Open jobs", String(dash.openJobs.length)],
-      ["Farm in", L.money(dash.flow.farmIn)],
-      ["Farm out", L.money(dash.flow.farmOut)],
-      ["Home out", L.money(dash.flow.personalOut)]
-    ];
-    const people = dash.people.map(function (person) {
-      const bits = [];
-      if (person.bills.length) bits.push('<p class="meta">Bills</p>');
-      person.bills.forEach(function (b) { bits.push("<p>" + U().chip(b.status, b.status) + " " + U().esc(b.bill.name) + " · " + U().esc(U().rel(b.days)) + "</p>"); });
-      if (person.chores.length) bits.push('<p class="meta">Chores</p>');
-      person.chores.slice(0, 3).forEach(function (c) { bits.push("<p>" + U().esc(c.title) + (c.dueDate ? " · " + U().esc(U().shortDate(c.dueDate)) : "") + "</p>"); });
-      if (person.events.length) bits.push('<p class="meta">Coming up</p>');
-      person.events.slice(0, 3).forEach(function (ev) { bits.push("<p>" + U().esc(U().shortDate(ev.date)) + " · " + U().esc(ev.title) + "</p>"); });
-      if (person.goals.length) bits.push('<p class="meta">Goals</p>');
-      person.goals.slice(0, 2).forEach(function (g) { bits.push("<p>" + U().esc(g.goal.name) + " · " + Math.round(g.pct * 100) + "%</p>"); });
-      if (!bits.length) bits.push('<p class="muted">Nothing due in the next week.</p>');
-      return '<article class="person"><h3>' + U().esc(person.user.name) + "</h3>" + bits.join("") + "</article>";
-    }).join("");
-    const upcoming = dash.events.slice(0, 5).map(function (ev) {
-      return '<div class="item"><div class="grow"><strong>' + U().esc(ev.title) + "</strong><p class=\"meta\">" + U().esc(U().shortDate(ev.date)) + (ev.time ? " · " + U().esc(ev.time) : "") + " · " + U().esc(ev.category) + "</p></div>" + U().chip(ev.source === "job" ? "Job" : ev.category, ev.source === "job" ? "farm" : "") + "</div>";
-    }).join("") || '<p class="empty">Nothing else on the calendar this week.</p>';
-    const devices = (App.devices || []).slice(0, 6).map(function (device) {
-      return '<button class="btn" type="button" data-go="devices">' + U().esc(device.name) + " · " + U().esc(deviceLine(device)) + "</button>";
-    }).join(" ");
-    App._charts = [
-      { id: "chartFlow", type: "bar", labels: ["Home in", "Home out", "Farm in", "Farm out"], data: [dash.flow.personalIn, dash.flow.personalOut, dash.flow.farmIn, dash.flow.farmOut] },
-      { id: "chartEggs", type: "bar", labels: ["Duck", "Chicken", "Quail"], data: [dash.eggs.duck, dash.eggs.chicken, dash.eggs.quail] }
-    ];
-    return head(hello + ", " + name, U().esc(U().longDate(day))) +
-      vacationCard() +
-      (alerts.length ? '<div class="card stack">' + alerts.map(function (line) { return "<p>" + line + "</p>"; }).join("") + "</div>" : "") +
-      '<div class="stats">' + stats.map(function (s) { return '<div class="stat"><span>' + U().esc(s[0]) + "</span><strong>" + U().esc(s[1]) + "</strong></div>"; }).join("") + "</div>" +
-      '<div class="person-grid">' + people + "</div>" +
-      '<div class="grid-2"><article class="card"><h3>This month</h3><div class="chart-box"><canvas id="chartFlow"></canvas></div></article><article class="card"><h3>Eggs this week</h3><div class="chart-box"><canvas id="chartEggs"></canvas></div></article></div>' +
-      '<article class="card"><h3>Coming up</h3><div class="list">' + upcoming + "</div></article>" +
-      (devices ? '<article class="card"><h3>House</h3><div class="row wrap">' + devices + "</div>" + (App.deviceNote === "demo" ? '<p class="meta">Sample devices. Nothing is sent to the house.</p>' : "") + "</article>" : "");
+    const layout = App.layout || L.defaultLayout();
+    const shown = layout.filter(function (item) { return item.show; });
+    const hidden = layout.filter(function (item) { return !item.show; });
+    App._charts = [];
+    const cards = shown.map(function (item) { return widgetBody(item, dash, day); }).join("");
+    const gallery = hidden.length ? '<div class="gallery"><p class="meta">Add a card</p>' + hidden.map(function (item) {
+      return '<button class="btn" type="button" data-act="show-widget" data-id="' + item.id + '">' + U().esc(widgetTitle(item.id)) + "</button>";
+    }).join("") + "</div>" : "";
+    const tools = App.editing
+      ? '<div class="row wrap edit-bar"><button class="primary" type="button" data-act="done-layout">Done</button><button class="btn" type="button" data-act="reset-layout">Reset to default</button></div>' + gallery
+      : '<div class="row wrap"><button class="btn" type="button" data-act="edit-layout">Edit layout</button></div>';
+    return head(hello + ", " + name, U().esc(U().longDate(day)) + (App.editing ? " · Drag Move. On a phone, press and hold Move." : "")) +
+      tools + '<div id="widgets">' + cards + "</div>";
+  }
+
+  function widgetBody(item, dash, day) {
+    const id = item.id;
+    const L = Logic();
+    if (id === "vacation") return widgetShell(id, item.size, "vacation", vacationCardInner());
+    if (id === "bills") {
+      const rows = dash.bills.slice(0, 4).map(function (bill) {
+        return '<div class="item"><a class="grow" href="#money/bills" data-go="money/bills"><strong>' + U().esc(bill.bill.name) + "</strong><p class=\"meta\">" + U().esc(L.money(bill.bill.amount)) + " · " + U().esc(U().rel(bill.days)) + "</p></a><button class=\"btn\" type=\"button\" data-act=\"pay-bill\" data-id=\"" + U().esc(bill.bill.id) + "\">Paid</button></div>";
+      }).join("") || '<p class="empty">Nothing due this week.</p>';
+      return widgetShell(id, item.size, "money/bills", '<div class="list">' + rows + "</div>");
+    }
+    if (id === "budgets") {
+      const rows = (dash.budgets.length ? dash.budgets : L.budgetRows(App.state, dash.month).slice(0, 4)).slice(0, 4).map(function (row) {
+        return "<p><strong>" + U().esc(row.name) + "</strong> " + U().chip(row.status === "none" ? "" : row.status, row.status) + "<span class=\"meta\">" + U().esc(L.money(row.spent)) + " of " + U().esc(L.money(row.limit || 0)) + "</span>" + U().bar(row.limit ? row.pct : 0, row.status) + "</p>";
+      }).join("") || '<p class="empty">No budgets yet.</p>';
+      return widgetShell(id, item.size, "money/budgets", rows);
+    }
+    if (id === "events") {
+      const rows = dash.events.slice(0, 5).map(function (ev) {
+        return '<a class="item" href="#plan/calendar" data-go="plan/calendar"><div class="grow"><strong>' + U().esc(ev.title) + "</strong><p class=\"meta\">" + U().esc(U().shortDate(ev.date)) + (ev.time ? " · " + U().esc(ev.time) : "") + "</p></div></a>";
+      }).join("") || '<p class="empty">Nothing in the next week.</p>';
+      return widgetShell(id, item.size, "plan/calendar", '<div class="list">' + rows + "</div>");
+    }
+    if (id === "chores") {
+      const mine = (App.state.chores || []).filter(function (chore) { return chore.status !== "done" && (!chore.assignee || chore.assignee === App.userId); }).slice(0, 5);
+      const rows = mine.map(function (chore) {
+        return '<label class="checkline item"><input type="checkbox" data-act="toggle-chore" data-id="' + U().esc(chore.id) + '"><span><strong>' + U().esc(chore.title) + "</strong></span></label>";
+      }).join("") || '<p class="empty">You are caught up.</p>';
+      return widgetShell(id, item.size, "today/chores", '<div class="list">' + rows + "</div>");
+    }
+    if (id === "goals") {
+      const rows = dash.goals.slice(0, 3).map(function (goal) {
+        return "<p><strong>" + U().esc(goal.goal.name) + "</strong><span class=\"meta\">" + Math.round(goal.pct * 100) + "%</span>" + U().bar(goal.pct, "") + "</p>";
+      }).join("") || '<p class="empty">No open goals.</p>';
+      return widgetShell(id, item.size, "plan/goals", rows);
+    }
+    if (id === "shopping") {
+      const rows = (App.state.listItems || []).filter(function (item) { return item.checked !== "yes"; }).slice(0, 5).map(function (item) {
+        return '<label class="checkline item"><input type="checkbox" data-act="toggle-item" data-id="' + U().esc(item.id) + '"><span><strong>' + U().esc(item.name) + "</strong></span></label>";
+      }).join("") || '<p class="empty">Lists are clear.</p>';
+      return widgetShell(id, item.size, "today/shop", '<p class="meta">' + dash.shopping + " still to buy</p><div class=\"list\">" + rows + "</div>");
+    }
+    if (id === "farm") {
+      App._charts.push({ id: "chartEggs", type: "bar", labels: ["Duck", "Chicken", "Quail"], data: [dash.eggs.duck, dash.eggs.chicken, dash.eggs.quail] });
+      return widgetShell(id, item.size, "farm", '<div class="stats"><div class="stat"><span>Eggs, 7 days</span><strong>' + dash.eggs.total + '</strong></div><div class="stat"><span>Open jobs</span><strong>' + dash.openJobs.length + "</strong></div></div><div class=\"row wrap\"><button class=\"btn\" type=\"button\" data-act=\"bump-egg\" data-species=\"duck\">+ Duck</button><button class=\"btn\" type=\"button\" data-act=\"bump-egg\" data-species=\"chicken\">+ Chicken</button><button class=\"btn\" type=\"button\" data-act=\"bump-egg\" data-species=\"quail\">+ Quail</button></div><div class=\"chart-box\"><canvas id=\"chartEggs\"></canvas></div>");
+    }
+    if (id === "money") {
+      App._charts.push({ id: "chartFlow", type: "bar", labels: ["Home in", "Home out", "Farm in", "Farm out"], data: [dash.flow.personalIn, dash.flow.personalOut, dash.flow.farmIn, dash.flow.farmOut] });
+      return widgetShell(id, item.size, "money", '<div class="stats"><div class="stat"><span>Net worth</span><strong>' + U().esc(L.money(dash.net.net)) + '</strong></div><div class="stat"><span>Farm in</span><strong>' + U().esc(L.money(dash.flow.farmIn)) + "</strong></div></div><div class=\"chart-box\"><canvas id=\"chartFlow\"></canvas></div>");
+    }
+    if (id === "devices") {
+      const devices = (App.devices || []).slice(0, 6).map(function (device) {
+        return '<button class="btn" type="button" data-go="devices">' + U().esc(device.name) + " · " + U().esc(deviceLine(device)) + "</button>";
+      }).join(" ") || '<p class="empty">No devices yet.</p>';
+      return widgetShell(id, item.size, "devices", '<div class="row wrap">' + devices + "</div>" + (App.deviceNote === "demo" ? '<p class="meta">Sample devices. Nothing is sent to the house.</p>' : ""));
+    }
+    return "";
+  }
+
+  function vacationCardInner() {
+    const L = Logic();
+    const trip = L.upcomingTrip(App.state, L.today());
+    const count = trip ? L.countdown(trip, new Date()) : null;
+    const title = trip ? trip.name : "Plan a trip";
+    const where = trip ? (trip.destination || "Destination not set") : "Dates, packing, and who covers the farm";
+    return '<a class="countdown-in" href="#vacation" data-go="vacation"><div><strong>' + U().esc(title) + '</strong><p class="meta">' + U().esc(where) + '</p></div><div class="when">' + U().esc(countdownText(count)) + "</div></a>";
   }
 
   function deviceLine(device) {

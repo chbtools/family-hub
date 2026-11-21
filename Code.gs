@@ -53,7 +53,8 @@ const COLUMNS = {
   itinerary: ['id', 'tripId', 'date', 'time', 'kind', 'title', 'address', 'confirmation', 'notes', 'sort'],
   tripItems: ['id', 'tripId', 'listName', 'kind', 'assignee', 'text', 'done', 'sort'],
   templates: ['id', 'name', 'kind', 'notes'],
-  templateItems: ['id', 'templateId', 'text', 'assignee', 'sort']
+  templateItems: ['id', 'templateId', 'text', 'assignee', 'sort'],
+  layouts: ['id', 'userId', 'body', 'updatedAt']
 };
 
 const NUMERIC = ['balance', 'amount', 'monthly', 'sort', 'dueDay', 'digestHour', 'mileageRate', 'principal', 'apr', 'payment', 'assets', 'liabilities', 'net', 'targetAmount', 'currentAmount', 'budget', 'spent', 'count', 'dozens', 'price', 'total', 'hours', 'rate', 'mileage', 'miles', 'cost'];

@@ -99,6 +99,7 @@
     const caret = active && typeof active.selectionStart === "number" ? active.selectionStart : null;
     applyTheme();
     paintChrome();
+    if (App.state) App.layout = L().chooseLayout(App.state, App.userId, storedLayout());
     App._charts = [];
     document.getElementById("view").innerHTML = globalThis.HubView.page();
     document.getElementById("modalRoot").innerHTML = globalThis.HubView.modal();
@@ -116,6 +117,51 @@
     if (previous !== App.route) window.scrollTo(0, 0);
     else window.scrollTo(0, y);
     render.route = App.route;
+    document.body.classList.toggle("editing", !!App.editing);
+    mountSortable();
+  }
+
+  function storedLayout() {
+    try { return JSON.parse(localStorage.getItem("hub-layout-" + App.userId) || ""); } catch (e) { return null; }
+  }
+
+  function persistLayout(items) {
+    const savedAt = new Date().toISOString();
+    const clean = L().normalizeLayout(items);
+    App.layout = clean;
+    try { localStorage.setItem("hub-layout-" + App.userId, JSON.stringify({ items: clean, savedAt: savedAt })); } catch (e) {}
+    const id = "lay_" + App.userId;
+    if (!App.state.layouts) App.state.layouts = [];
+    change(function (api) {
+      api.upsert("layouts", { id: id, userId: App.userId, body: JSON.stringify(clean), updatedAt: savedAt });
+    });
+  }
+
+  function mountSortable() {
+    if (App._sort) {
+      try { App._sort.destroy(); } catch (e) {}
+      App._sort = null;
+    }
+    const root = document.getElementById("widgets");
+    if (!root || !App.editing || !window.Sortable) return;
+    App._sort = window.Sortable.create(root, {
+      animation: 180,
+      delay: 220,
+      delayOnTouchOnly: true,
+      touchStartThreshold: 6,
+      ghostClass: "drag-ghost",
+      handle: ".grip",
+      draggable: ".widget",
+      onEnd: function () {
+        const ids = Array.prototype.map.call(root.querySelectorAll(".widget"), function (node) { return node.getAttribute("data-widget"); });
+        const byId = {};
+        (App.layout || []).forEach(function (item) { byId[item.id] = item; });
+        const next = ids.map(function (id) { return byId[id]; }).filter(Boolean);
+        (App.layout || []).forEach(function (item) { if (!item.show) next.push(item); });
+        persistLayout(next);
+        render();
+      }
+    });
   }
 
   function mountCharts() {
@@ -938,6 +984,28 @@
     "add-trip-item": function (el) { openTripItem(el.dataset.id); },
     "add-template": openTemplate,
     "add-trip-expense": function (el) { openTripExpense(el.dataset.id); },
+    "edit-layout": function () { App.editing = true; render(); },
+    "done-layout": function () { App.editing = false; render(); },
+    "reset-layout": function () { persistLayout(L().defaultLayout()); render(); },
+    "hide-widget": function (el) {
+      persistLayout((App.layout || []).map(function (item) {
+        return item.id === el.dataset.id ? { id: item.id, size: item.size, show: false } : item;
+      }));
+      render();
+    },
+    "show-widget": function (el) {
+      persistLayout((App.layout || []).map(function (item) {
+        return item.id === el.dataset.id ? { id: item.id, size: item.size, show: true } : item;
+      }));
+      render();
+    },
+    "size-widget": function (el) {
+      const nextSize = { sm: "md", md: "lg", lg: "sm" };
+      persistLayout((App.layout || []).map(function (item) {
+        return item.id === el.dataset.id ? { id: item.id, size: nextSize[item.size] || "md", show: item.show } : item;
+      }));
+      render();
+    },
     "add-shop": function () {
       go("today/shop");
       setTimeout(function () { const box = document.getElementById("itemName"); if (box) box.focus(); }, 50);
