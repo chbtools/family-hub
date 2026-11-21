@@ -68,6 +68,7 @@
       tx("tx_feed", on(-4), "acct_farm", -72.5, "expense", "cat_feed", "Farm", "Southern States", "Layer feed", "user_randy"),
       tx("tx_fuel", on(-2), "acct_farm", -68, "expense", "cat_fuel", "Farm", "Circle K", "Off-road diesel", "user_randy"),
       tx("tx_house", on(-9), "acct_joint", -46.2, "expense", "cat_house", "Personal", "Hardware", "Door latch", "user_partner"),
+      tx("tx_trip", on(20), "acct_joint", -40, "expense", "cat_house", "Personal", "Cottage deposit", "Emerald Isle", "user_randy"),
       tx("tx_sub", on(-15), "acct_joint", -15.49, "expense", "cat_subs", "Personal", "Streaming", "", "user_partner"),
       tx("tx_elec", prev + "-18", "acct_joint", -178.33, "expense", "cat_electric", "Personal", "Electric co-op", "Last month", "user_randy")
     ];
@@ -197,6 +198,38 @@
       { id: "fl_hen", species: "chicken", breed: "Rhode Island Red", count: 22, acquired: "2024-03-15", status: "active", notes: "" },
       { id: "fl_quail", species: "quail", breed: "Coturnix", count: 30, acquired: "2025-05-01", status: "active", notes: "" }
     ];
+    state.trips = [
+      { id: "trip_beach", name: "Weekend at the coast", destination: "Emerald Isle, NC", startDate: on(20), endDate: on(23), departTime: "08:00", travelers: "user_randy,user_partner", budget: 600, spent: "", trackMoney: "yes", notes: "Leave after chores. Neighbor has the gate code." },
+      { id: "trip_mtn", name: "Asheville weekend", destination: "Asheville, NC", startDate: on(-40), endDate: on(-37), departTime: "09:00", travelers: "user_randy,user_partner", budget: 400, spent: 365, trackMoney: "no", notes: "Already home." }
+    ];
+    state.itinerary = [
+      { id: "it_drive", tripId: "trip_beach", date: on(20), time: "08:00", kind: "drive", title: "Drive to Emerald Isle", address: "From Lillington", confirmation: "", notes: "About 2.5 hours. Stop for fuel in Dunn.", sort: 1 },
+      { id: "it_stay", tripId: "trip_beach", date: on(20), time: "15:00", kind: "lodging", title: "Cottage check-in", address: "214 Ocean Drive, Emerald Isle", confirmation: "EI-4481", notes: "Keypad code is in the booking email.", sort: 2 },
+      { id: "it_eat", tripId: "trip_beach", date: on(21), time: "18:30", kind: "reservation", title: "Dinner", address: "Boardwalk, Emerald Isle", confirmation: "Smith 2", notes: "", sort: 3 },
+      { id: "it_beach", tripId: "trip_beach", date: on(22), time: "10:00", kind: "activity", title: "Beach morning", address: "Public access near the cottage", confirmation: "", notes: "", sort: 4 }
+    ];
+    state.tripItems = [
+      { id: "ti_pack1", tripId: "trip_beach", listName: "Packing", kind: "packing", assignee: "user_randy", text: "Clothes and charger", done: "no", sort: 1 },
+      { id: "ti_pack2", tripId: "trip_beach", listName: "Packing", kind: "packing", assignee: "user_partner", text: "Medicine", done: "no", sort: 2 },
+      { id: "ti_farm1", tripId: "trip_beach", listName: "Before we leave", kind: "farm", assignee: "user_randy", text: "Feed and water covered", done: "no", sort: 1 },
+      { id: "ti_farm2", tripId: "trip_beach", listName: "Before we leave", kind: "farm", assignee: "user_partner", text: "Egg collection covered", done: "yes", sort: 2 },
+      { id: "ti_farm3", tripId: "trip_beach", listName: "Before we leave", kind: "farm", assignee: "user_randy", text: "Coop secured", done: "no", sort: 3 },
+      { id: "ti_house", tripId: "trip_beach", listName: "Before we leave", kind: "house", assignee: "shared", text: "Thermostat set and doors locked", done: "no", sort: 4 },
+      { id: "ti_docs", tripId: "trip_beach", listName: "Documents", kind: "documents", assignee: "shared", text: "IDs and insurance cards", done: "no", sort: 1 }
+    ];
+    state.templates = [
+      { id: "tpl_leave", name: "Before we leave", kind: "farm", notes: "House and farm close-up." },
+      { id: "tpl_pack", name: "Packing", kind: "packing", notes: "One list, then assign people on the trip." }
+    ];
+    state.templateItems = [
+      { id: "tpi1", templateId: "tpl_leave", text: "Feed and water covered", assignee: "user_randy", sort: 1 },
+      { id: "tpi2", templateId: "tpl_leave", text: "Egg collection covered", assignee: "user_partner", sort: 2 },
+      { id: "tpi3", templateId: "tpl_leave", text: "Coop secured", assignee: "user_randy", sort: 3 },
+      { id: "tpi4", templateId: "tpl_leave", text: "Thermostat set and doors locked", assignee: "shared", sort: 4 },
+      { id: "tpi5", templateId: "tpl_pack", text: "Clothes and charger", assignee: "", sort: 1 },
+      { id: "tpi6", templateId: "tpl_pack", text: "Medicine", assignee: "", sort: 2 },
+      { id: "tpi7", templateId: "tpl_pack", text: "IDs and insurance cards", assignee: "shared", sort: 3 }
+    ];
     state.mileage = [
       { id: "mi_job1", date: on(-8), vehicle: "Farm truck", miles: 12, hours: 3.5, purpose: "Driveway job", book: "Farm", jobId: "job_alvarez", notes: "" },
       { id: "mi_feed", date: on(-4), vehicle: "Farm truck", miles: 16, hours: 0, purpose: "Feed run", book: "Farm", jobId: "", notes: "" },
@@ -221,6 +254,7 @@
       if (row.id === "tx_job1") { row.refType = "job"; row.refId = "job_alvarez"; }
       if (row.id === "tx_egg1") { row.refType = "eggSale"; row.refId = "sale1"; }
       if (row.id === "tx_egg2") { row.refType = "eggSale"; row.refId = "sale2"; }
+      if (row.id === "tx_trip") { row.refType = "trip"; row.refId = "trip_beach"; }
     });
     state.demoDevices = demoDevices();
     return state;

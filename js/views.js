@@ -76,6 +76,7 @@
       { id: "chartEggs", type: "bar", labels: ["Duck", "Chicken", "Quail"], data: [dash.eggs.duck, dash.eggs.chicken, dash.eggs.quail] }
     ];
     return head(hello + ", " + name, U().esc(U().longDate(day))) +
+      vacationCard() +
       (alerts.length ? '<div class="card stack">' + alerts.map(function (line) { return "<p>" + line + "</p>"; }).join("") + "</div>" : "") +
       '<div class="stats">' + stats.map(function (s) { return '<div class="stat"><span>' + U().esc(s[0]) + "</span><strong>" + U().esc(s[1]) + "</strong></div>"; }).join("") + "</div>" +
       '<div class="person-grid">' + people + "</div>" +
@@ -388,7 +389,7 @@
       body = '<div class="cal"><span class="dow">Sun</span><span class="dow">Mon</span><span class="dow">Tue</span><span class="dow">Wed</span><span class="dow">Thu</span><span class="dow">Fri</span><span class="dow">Sat</span>' + cells.map(function (cell) {
         const mine = items.filter(function (item) { return item.date === cell.date; }).slice(0, 3);
         const on = cell.date === (App.calDay || L.today()) ? " on" : "";
-        return '<button type="button" class="' + (cell.inMonth ? "" : "off") + on + '" data-act="cal-day" data-date="' + cell.date + '"><strong>' + Number(cell.date.slice(8)) + '</strong><span class="dots">' + mine.map(function (item) { return '<i class="' + (item.source === "bill" ? "bill" : item.source === "job" ? "job" : "") + '"></i>'; }).join("") + "</span></button>";
+        return '<button type="button" class="' + (cell.inMonth ? "" : "off") + on + '" data-act="cal-day" data-date="' + cell.date + '"><strong>' + Number(cell.date.slice(8)) + '</strong><span class="dots">' + mine.map(function (item) { return '<i class="' + (item.source === "bill" ? "bill" : item.source === "job" ? "job" : item.source === "trip" ? "trip" : "") + '"></i>'; }).join("") + "</span></button>";
       }).join("") + "</div>";
       const picked = items.filter(function (item) { return item.date === (App.calDay || L.today()); });
       body += '<h3>' + U().esc(U().longDate(App.calDay || L.today())) + "</h3><div class=\"list\">" + (picked.map(function (item) { return '<div class="item"><div class="grow"><strong>' + U().esc(item.title) + "</strong><p class=\"meta\">" + U().esc(item.time || item.notes || item.category) + "</p></div></div>"; }).join("") || '<p class="empty">Nothing that day.</p>') + "</div>";
@@ -527,9 +528,96 @@
     return '<section class="experimental"><h3>Blink cameras · experimental</h3>' + body + "</section>";
   }
 
+  function countdownText(count) {
+    if (!count) return "No trip on the books";
+    const bits = [];
+    if (count.days) bits.push(count.days + (count.days === 1 ? " day" : " days"));
+    if (count.hours || !bits.length) bits.push(count.hours + (count.hours === 1 ? " hour" : " hours"));
+    const label = bits.join(", ");
+    return count.phase === "there" ? label + " until you're home" : label;
+  }
+
+  function vacationCard() {
+    const L = Logic();
+    const day = L.today();
+    const trip = L.upcomingTrip(App.state, day);
+    const count = trip ? L.countdown(trip, new Date()) : null;
+    const title = trip ? trip.name : "Plan a trip";
+    const where = trip ? (trip.destination || "") : "Dates, packing, and who covers the farm";
+    return '<a class="card countdown" href="#vacation" data-go="vacation"><div><p class="eyebrow">' + (count && count.phase === "there" ? "On the trip" : "Next trip") + "</p><h3>" + U().esc(title) + "</h3><p class=\"meta\">" + U().esc(where) + "</p></div><div class=\"when\">" + U().esc(countdownText(count)) + "</div></a>";
+  }
+
+  function vacations() {
+    const L = Logic();
+    const day = L.today();
+    const rows = (App.state.trips || []).slice().sort(function (a, b) { return String(b.startDate).localeCompare(String(a.startDate)); });
+    const upcoming = rows.filter(function (trip) { return trip.endDate >= day; });
+    const past = rows.filter(function (trip) { return trip.endDate < day; });
+    function card(trip) {
+      const spent = L.tripSpent(App.state, trip);
+      return '<a class="item" href="#vacation/trip/' + U().esc(trip.id) + '" data-go="vacation/trip/' + U().esc(trip.id) + '"><div class="grow"><strong>' + U().esc(trip.name) + "</strong><p class=\"meta\">" + U().esc(trip.destination || "") + " · " + U().esc(U().shortDate(trip.startDate)) + " – " + U().esc(U().shortDate(trip.endDate)) + "</p></div><div class=\"right\">" + U().esc(L.money(spent)) + "<br><span class=\"meta\">of " + U().esc(L.money(trip.budget || 0)) + "</span></div></a>";
+    }
+    const templates = (App.state.templates || []).map(function (tpl) {
+      const n = (App.state.templateItems || []).filter(function (item) { return item.templateId === tpl.id; }).length;
+      return '<div class="item"><div class="grow"><strong>' + U().esc(tpl.name) + "</strong><p class=\"meta\">" + U().esc(tpl.kind) + " · " + n + " items</p></div></div>";
+    }).join("") || '<p class="empty">No templates yet.</p>';
+    return head("Vacations", "Upcoming and past trips. Dates also show on the calendar.") +
+      '<p><button class="primary" type="button" data-act="add-trip">Add trip</button> <button class="btn" type="button" data-act="add-template">Add checklist template</button></p>' +
+      "<h3>Upcoming</h3><div class=\"list\">" + (upcoming.map(card).join("") || '<p class="empty">Nothing planned.</p>') + "</div>" +
+      "<h3>Past</h3><div class=\"list\">" + (past.map(card).join("") || '<p class="empty">No past trips yet.</p>') + "</div>" +
+      "<h3>Checklist templates</h3><div class=\"list\">" + templates + "</div>";
+  }
+
+  function tripDetail(id) {
+    const L = Logic();
+    const trip = L.byId(App.state.trips, id);
+    if (!trip) return head("Trip") + '<p class="empty">That trip is not on this phone.</p>';
+    const spent = L.tripSpent(App.state, trip);
+    const budget = L.num(trip.budget);
+    const who = String(trip.travelers || "").split(",").filter(Boolean).map(function (person) { return L.userName(App.state, person.trim()); }).join(", ");
+    const stops = (App.state.itinerary || []).filter(function (row) { return row.tripId === id; }).sort(function (a, b) {
+      if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+      return String(a.time).localeCompare(String(b.time));
+    });
+    const days = {};
+    stops.forEach(function (stop) {
+      const key = stop.date || "Unscheduled";
+      if (!days[key]) days[key] = [];
+      days[key].push(stop);
+    });
+    const plan = Object.keys(days).map(function (date) {
+      const lines = days[date].map(function (stop) {
+        return "<p><strong>" + U().esc(stop.kind) + "</strong> · " + U().esc(stop.time || "") + " " + U().esc(stop.title) + (stop.confirmation ? " · #" + U().esc(stop.confirmation) : "") + (stop.address ? "<br><span class=\"meta\">" + U().esc(stop.address) + "</span>" : "") + (stop.notes ? "<br><span class=\"meta\">" + U().esc(stop.notes) + "</span>" : "") + "</p>";
+      }).join("");
+      return "<h3>" + U().esc(date === "Unscheduled" ? date : U().longDate(date)) + "</h3>" + lines;
+    }).join("") || '<p class="empty">No plans for the days yet.</p>';
+    const groups = {};
+    (App.state.tripItems || []).filter(function (item) { return item.tripId === id; }).forEach(function (item) {
+      const key = item.listName || item.kind || "List";
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(item);
+    });
+    const lists = Object.keys(groups).map(function (name) {
+      const rows = groups[name].map(function (item) {
+        const person = item.assignee ? " · " + L.userName(App.state, item.assignee) : "";
+        return '<label class="checkline item"><input type="checkbox" data-act="toggle-trip-item" data-id="' + U().esc(item.id) + '"' + (item.done === "yes" ? " checked" : "") + '><span class="' + (item.done === "yes" ? "done" : "") + '">' + U().esc(item.text) + '<span class="meta">' + U().esc(item.kind || "") + person + "</span></span></label>";
+      }).join("");
+      return "<h3>" + U().esc(name) + "</h3><div class=\"list\">" + rows + "</div>";
+    }).join("") || '<p class="empty">No checklist yet. Apply a template or add an item.</p>';
+    const templateOptions = (App.state.templates || []).map(function (tpl) { return [tpl.id, tpl.name]; });
+    return '<p><a href="#vacation" data-go="vacation">All trips</a></p>' +
+      head(trip.name, U().esc(trip.destination || "") + " · " + U().esc(U().shortDate(trip.startDate)) + " – " + U().esc(U().shortDate(trip.endDate)) + (trip.departTime ? " · leave " + U().esc(trip.departTime) : "")) +
+      '<article class="card"><p>' + U().esc(who || "No travelers yet") + "</p><p>" + U().esc(L.money(spent)) + " spent of " + U().esc(L.money(budget)) + (String(trip.trackMoney) === "yes" ? " · from Money" : "") + "</p>" + U().bar(budget ? spent / budget : 0, budget && spent > budget ? "over" : "") + "<p>" + U().esc(trip.notes || "") + '</p><div class="row wrap"><button class="btn" type="button" data-act="edit-trip" data-id="' + U().esc(trip.id) + '">Edit</button><button class="btn" type="button" data-act="add-trip-expense" data-id="' + U().esc(trip.id) + '">Add expense</button></div></article>' +
+      '<p><button class="primary" type="button" data-act="add-stop" data-id="' + U().esc(trip.id) + '">Add to the itinerary</button></p>' + plan +
+      '<p><button class="primary" type="button" data-act="add-trip-item" data-id="' + U().esc(trip.id) + '">Add checklist item</button></p>' +
+      (templateOptions.length ? '<form class="add-row" data-act="apply-template"><input type="hidden" name="tripId" value="' + U().esc(trip.id) + '">' + U().select("Template", "templateId", templateOptions[0][0], templateOptions) + '<button class="btn" type="submit">Apply</button></form>' : "") +
+      lists;
+  }
+
   function more() {
     const tiles = [
       ["plan/calendar", "Calendar", "Month, week, and agenda"],
+      ["vacation", "Vacations", "Trips, packing, and the farm"],
       ["plan/goals", "Goals", "Shared and personal"],
       ["plan/projects", "Projects", "Home and farm tasks"],
       ["devices", "House", "Thermostats, TV, laundry"],
@@ -606,6 +694,8 @@
     if (route === "today/meals") return meals();
     if (route === "today/shop") return shop();
     if (route === "plan/calendar") return calendar();
+    if (route === "vacation") return vacations();
+    if (route.indexOf("vacation/trip/") === 0) return tripDetail(route.slice("vacation/trip/".length));
     if (route === "plan/goals") return goals();
     if (route === "plan/projects") return projects();
     if (route.indexOf("plan/project/") === 0) return project(route.slice("plan/project/".length));

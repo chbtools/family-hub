@@ -177,7 +177,10 @@
 
   function readForm(form) {
     const data = {};
-    new FormData(form).forEach(function (value, key) { data[key] = String(value); });
+    new FormData(form).forEach(function (value, key) {
+      if (data[key] != null) data[key] = data[key] + "," + String(value);
+      else data[key] = String(value);
+    });
     return data;
   }
 
@@ -747,6 +750,153 @@
     render();
   }
 
+  function travelerFields(selected) {
+    const chosen = String(selected || "").split(",");
+    return (App.state.users || []).filter(function (user) { return String(user.active) !== "no"; }).map(function (user) {
+      const on = chosen.indexOf(user.id) >= 0 ? " checked" : "";
+      return '<label class="checkline"><input type="checkbox" name="travelers" value="' + U().esc(user.id) + '"' + on + "><span>" + U().esc(user.name) + "</span></label>";
+    }).join("");
+  }
+
+  function openTrip(existing) {
+    const trip = existing || {};
+    openModal(existing ? "Edit trip" : "Trip", '<form class="stack" data-act="save-trip"><input type="hidden" name="id" value="' + U().esc(trip.id || "") + '">' +
+      U().field("Name", "name", trip.name || "") +
+      U().field("Destination", "destination", trip.destination || "") +
+      U().field("Leave", "startDate", trip.startDate || L().today(), "date") +
+      U().field("Home", "endDate", trip.endDate || L().addDays(L().today(), 2), "date") +
+      U().field("Depart time", "departTime", trip.departTime || "08:00", "time") +
+      "<p class=\"meta\">Who is going</p>" + travelerFields(trip.travelers || App.userId) +
+      U().field("Budget", "budget", trip.budget || "", "number") +
+      U().field("Spent, if you are not linking Money", "spent", trip.spent || "", "number") +
+      '<label class="checkline"><input type="checkbox" name="trackMoney" value="yes"' + (trip.trackMoney === "yes" ? " checked" : "") + "><span>Spent comes from Money transactions for this trip</span></label>" +
+      U().area("Notes", "notes", trip.notes || "") + cancelRow() + "</form>", true);
+  }
+
+  function openStop(tripId) {
+    const trip = L().byId(App.state.trips, tripId) || {};
+    openModal("Itinerary", '<form class="stack" data-act="save-stop"><input type="hidden" name="tripId" value="' + U().esc(tripId) + '">' +
+      U().field("Date", "date", trip.startDate || L().today(), "date") +
+      U().field("Time", "time", "", "time") +
+      U().select("Kind", "kind", "drive", [["flight", "Flight"], ["drive", "Drive"], ["lodging", "Lodging"], ["reservation", "Reservation"], ["activity", "Activity"], ["note", "Note"]]) +
+      U().field("Title", "title", "") +
+      U().field("Address", "address", "") +
+      U().field("Confirmation", "confirmation", "") +
+      U().area("Notes", "notes", "") + cancelRow() + "</form>");
+  }
+
+  function openTripItem(tripId) {
+    openModal("Checklist item", '<form class="stack" data-act="save-trip-item"><input type="hidden" name="tripId" value="' + U().esc(tripId) + '">' +
+      U().field("List name", "listName", "Packing") +
+      U().select("Kind", "kind", "packing", [["packing", "Packing"], ["house", "House"], ["farm", "Farm"], ["documents", "Documents"]]) +
+      U().field("Item", "text", "") +
+      U().select("Who", "assignee", App.userId, U().userOptions(App.state, [["", "Anyone"], ["shared", "Shared"]])) +
+      cancelRow() + "</form>");
+  }
+
+  function openTemplate() {
+    openModal("Checklist template", '<form class="stack" data-act="save-template">' +
+      U().field("Name", "name", "Before we leave") +
+      U().select("Kind", "kind", "farm", [["packing", "Packing"], ["house", "House"], ["farm", "Farm"], ["documents", "Documents"]]) +
+      U().area("Items, one per line", "lines", "Feed and water covered\nEgg collection covered\nCoop secured") +
+      '<p class="meta">Apply this from a trip. Lines become checklist items you can check off.</p>' +
+      cancelRow() + "</form>");
+  }
+
+  function openTripExpense(tripId) {
+    const accounts = U().accountOptions(App.state);
+    if (!accounts.length) { toast("Add an account in Money first."); return; }
+    openModal("Trip expense", '<form class="stack" data-act="save-trip-expense"><input type="hidden" name="tripId" value="' + U().esc(tripId) + '">' +
+      U().field("Amount", "amount", "", "number") +
+      U().field("Payee", "payee", "") +
+      U().field("Date", "date", L().today(), "date") +
+      U().select("Account", "accountId", accounts[0][0], accounts) +
+      bookOptions("Personal") +
+      cancelRow() + "</form>");
+  }
+
+  async function onTrip(data) {
+    if (!data.name) { toast("Name the trip."); return; }
+    const id = data.id || L().uid("trip");
+    await change(function (api) {
+      api.upsert("trips", {
+        id: id, name: data.name, destination: data.destination || "", startDate: data.startDate, endDate: data.endDate || data.startDate,
+        departTime: data.departTime || "", travelers: data.travelers || "", budget: data.budget === "" ? "" : L().round2(data.budget),
+        spent: data.spent === "" ? "" : L().round2(data.spent), trackMoney: data.trackMoney === "yes" ? "yes" : "no", notes: data.notes || ""
+      });
+    });
+    closeModal();
+    go("vacation/trip/" + id);
+  }
+
+  async function onStop(data) {
+    if (!data.title) { toast("Name this stop."); return; }
+    await change(function (api) {
+      api.upsert("itinerary", {
+        id: L().uid("it"), tripId: data.tripId, date: data.date || "", time: data.time || "", kind: data.kind,
+        title: data.title, address: data.address || "", confirmation: data.confirmation || "", notes: data.notes || "", sort: 1
+      });
+    });
+    closeModal();
+  }
+
+  async function onTripItem(data) {
+    if (!data.text) { toast("Write the item."); return; }
+    await change(function (api) {
+      api.upsert("tripItems", {
+        id: L().uid("ti"), tripId: data.tripId, listName: data.listName || "List", kind: data.kind, assignee: data.assignee || "",
+        text: data.text, done: "no", sort: 1
+      });
+    });
+    closeModal();
+  }
+
+  async function onTemplate(data) {
+    const lines = String(data.lines || "").split(/\n/).map(function (line) { return line.trim(); }).filter(Boolean);
+    if (!data.name || !lines.length) { toast("Name the template and add at least one line."); return; }
+    const id = L().uid("tpl");
+    await change(function (api) {
+      api.upsert("templates", { id: id, name: data.name, kind: data.kind, notes: "" });
+      lines.forEach(function (line, index) {
+        api.upsert("templateItems", { id: L().uid("tpi"), templateId: id, text: line, assignee: "", sort: index + 1 });
+      });
+    });
+    closeModal();
+    toast("Template saved.");
+  }
+
+  async function onApplyTemplate(data) {
+    const tpl = L().byId(App.state.templates, data.templateId);
+    if (!tpl) return;
+    const items = (App.state.templateItems || []).filter(function (item) { return item.templateId === tpl.id; });
+    await change(function (api) {
+      items.forEach(function (item) {
+        api.upsert("tripItems", {
+          id: L().uid("ti"), tripId: data.tripId, listName: tpl.name, kind: tpl.kind || "packing",
+          assignee: item.assignee || "", text: item.text, done: "no", sort: item.sort || 1
+        });
+      });
+    });
+    toast(items.length ? "Checklist added." : "That template has no items.");
+    render();
+  }
+
+  async function onTripExpense(data) {
+    const amount = -Math.abs(L().num(data.amount));
+    if (!amount) { toast("Enter an amount."); return; }
+    await change(function (api) {
+      api.upsert("transactions", {
+        id: L().uid("tx"), date: data.date || L().today(), accountId: data.accountId, amount: amount, type: "expense",
+        categoryId: "cat_house", book: data.book || "Personal", payee: data.payee || "Trip", memo: "Trip expense",
+        refType: "trip", refId: data.tripId, createdBy: App.userId, createdAt: new Date().toISOString()
+      });
+      api.upsert("trips", { id: data.tripId, trackMoney: "yes" });
+      shiftAccount(api, data.accountId, amount);
+    });
+    closeModal();
+    toast("Saved in Money and on this trip.");
+  }
+
   const actions = {
     close: function () { closeModal(); },
     quick: function () {
@@ -782,6 +932,12 @@
     "add-flock": openFlock,
     "add-miles": openMiles,
     "add-list": openList,
+    "add-trip": function () { openTrip(); },
+    "edit-trip": function (el) { openTrip(L().byId(App.state.trips, el.dataset.id)); },
+    "add-stop": function (el) { openStop(el.dataset.id); },
+    "add-trip-item": function (el) { openTripItem(el.dataset.id); },
+    "add-template": openTemplate,
+    "add-trip-expense": function (el) { openTripExpense(el.dataset.id); },
     "add-shop": function () {
       go("today/shop");
       setTimeout(function () { const box = document.getElementById("itemName"); if (box) box.focus(); }, 50);
@@ -1118,6 +1274,12 @@
       toast("Imported " + rows.length + " transactions.");
       return;
     }
+    if (act === "save-trip") return onTrip(data);
+    if (act === "save-stop") return onStop(data);
+    if (act === "save-trip-item") return onTripItem(data);
+    if (act === "save-template") return onTemplate(data);
+    if (act === "apply-template") return onApplyTemplate(data);
+    if (act === "save-trip-expense") return onTripExpense(data);
     if (act === "save-url") {
       try {
         const url = String(data.url || "").trim();
@@ -1209,6 +1371,10 @@
       }).then(function () { render(); });
     } else if (act === "toggle-milestone") {
       toggleChecked("milestones", el.dataset.id, "done", "yes", "no").then(function () { render(); });
+    } else if (act === "toggle-trip-item") {
+      const row = L().byId(App.state.tripItems, el.dataset.id);
+      if (!row) return;
+      change(function (api) { api.upsert("tripItems", { id: row.id, done: el.checked ? "yes" : "no" }); }).then(function () { render(); });
     } else if (act === "toggle-task") {
       const row = L().byId(App.state.tasks, el.dataset.id);
       if (!row) return;

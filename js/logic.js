@@ -35,7 +35,12 @@
     equipment: ["id", "name", "type", "hours", "status", "notes"],
     serviceLogs: ["id", "equipmentId", "date", "hours", "what", "cost", "notes", "by"],
     flock: ["id", "species", "breed", "count", "acquired", "status", "notes"],
-    mileage: ["id", "date", "vehicle", "miles", "hours", "purpose", "book", "jobId", "notes"]
+    mileage: ["id", "date", "vehicle", "miles", "hours", "purpose", "book", "jobId", "notes"],
+    trips: ["id", "name", "destination", "startDate", "endDate", "departTime", "travelers", "budget", "spent", "trackMoney", "notes"],
+    itinerary: ["id", "tripId", "date", "time", "kind", "title", "address", "confirmation", "notes", "sort"],
+    tripItems: ["id", "tripId", "listName", "kind", "assignee", "text", "done", "sort"],
+    templates: ["id", "name", "kind", "notes"],
+    templateItems: ["id", "templateId", "text", "assignee", "sort"]
   };
 
   const NUMERIC = [
@@ -402,6 +407,23 @@
         notes: job.address || ""
       });
     });
+    (state.trips || []).forEach(function (trip) {
+      if (!trip.startDate || !trip.endDate || trip.startDate > to || trip.endDate < from) return;
+      let date = trip.startDate < from ? from : trip.startDate;
+      const last = trip.endDate > to ? to : trip.endDate;
+      let guard = 0;
+      while (date <= last && guard < 45) {
+        const edge = date === trip.startDate ? "depart" : (date === trip.endDate ? "return" : "");
+        items.push({
+          id: "tripcal_" + trip.id + "_" + date, date: date,
+          time: edge === "depart" ? (trip.departTime || "") : "",
+          title: (trip.name || "Trip") + (trip.destination ? " · " + trip.destination : ""),
+          owner: "", category: "trip", source: "trip", sourceId: trip.id, notes: edge
+        });
+        date = addDays(date, 1);
+        guard++;
+      }
+    });
     items.sort(function (a, b) {
       if (a.date !== b.date) return a.date < b.date ? -1 : 1;
       return String(a.time).localeCompare(String(b.time));
@@ -449,7 +471,9 @@
     const attention = bills.filter(function (b) { return b.status === "overdue" || b.status === "soon"; });
     const budgets = budgetRows(state, month).filter(function (b) { return b.status === "over" || b.status === "warn"; });
     const soonEvents = calendarEntries(state, day, addDays(day, 7)).filter(function (ev) {
-      return ev.source !== "bill";
+      if (ev.source === "bill") return false;
+      if (ev.source === "trip" && ev.notes !== "depart") return false;
+      return true;
     }).slice(0, 8);
     const chores = (state.chores || []).filter(function (c) { return c.status !== "done"; });
     const goals = (state.goals || []).filter(function (g) { return g.status !== "done"; }).map(function (g) {
@@ -631,7 +655,53 @@
     (state.equipment || []).forEach(function (eq) {
       if (has(eq.name, eq.type, eq.notes)) push("Equipment", eq.name, eq.type || "", "farm/equipment");
     });
+    (state.trips || []).forEach(function (trip) {
+      if (has(trip.name, trip.destination, trip.notes)) push("Trip", trip.name, trip.destination || trip.startDate, "vacation/trip/" + trip.id);
+    });
     return hits;
+  }
+
+  /* Next trip that has not ended, and the days/hours until departure or until they are home. */
+  function upcomingTrip(state, day) {
+    const rows = (state.trips || []).filter(function (trip) { return trip.endDate && trip.endDate >= day && trip.startDate; });
+    rows.sort(function (a, b) { return a.startDate < b.startDate ? -1 : a.startDate > b.startDate ? 1 : 0; });
+    return rows[0] || null;
+  }
+
+  function atLocal(isoDate, time) {
+    const p = parts(isoDate);
+    const hm = String(time || "00:00").split(":");
+    return new Date(p.y, p.m - 1, p.d, parseInt(hm[0], 10) || 0, parseInt(hm[1], 10) || 0, 0);
+  }
+
+  function countdown(trip, now) {
+    if (!trip || !trip.startDate || !trip.endDate) return null;
+    const clock = now || new Date();
+    const start = atLocal(trip.startDate, trip.departTime || "08:00");
+    const end = atLocal(trip.endDate, "18:00");
+    let ms = start - clock;
+    let phase = "until";
+    if (clock >= start && clock <= end) { ms = end - clock; phase = "there"; }
+    else if (clock > end) return null;
+    if (ms < 0) ms = 0;
+    return {
+      phase: phase,
+      days: Math.floor(ms / 86400000),
+      hours: Math.floor((ms % 86400000) / 3600000),
+      trip: trip
+    };
+  }
+
+  function tripSpent(state, trip) {
+    if (!trip) return 0;
+    if (String(trip.trackMoney) === "yes") {
+      let sum = 0;
+      (state.transactions || []).forEach(function (row) {
+        if (row.refType === "trip" && row.refId === trip.id && row.type !== "transfer" && num(row.amount) < 0) sum += Math.abs(num(row.amount));
+      });
+      return round2(sum);
+    }
+    return round2(trip.spent);
   }
 
   function taxRows(state, year) {
@@ -742,6 +812,9 @@
     chunkOps: chunkOps,
     nextChoreDate: nextChoreDate,
     subscriptionMonthly: subscriptionMonthly,
-    goalProgress: goalProgress
+    goalProgress: goalProgress,
+    upcomingTrip: upcomingTrip,
+    countdown: countdown,
+    tripSpent: tripSpent
   };
 });
