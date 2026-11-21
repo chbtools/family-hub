@@ -1736,6 +1736,10 @@
     }
     if (act === "save-settings") {
       await change(function (api) {
+        api.upsert("users", { id: "user_randy", name: data.randyName || "Randy Johnson" });
+        api.upsert("users", { id: "user_partner", name: data.partnerName || "Partner" });
+      });
+      const saved = await change(function (api) {
         api.upsert("settings", {
           id: "hub", randyName: data.randyName, partnerName: data.partnerName, farmName: data.farmName,
           location: data.location, digestEmails: data.digestEmails || "", digestHour: parseInt(data.digestHour, 10) || 6,
@@ -1745,10 +1749,8 @@
           eggMargin: data.eggMargin === "" ? 50 : L().num(data.eggMargin),
           wearRate: data.wearRate === "" ? 8 : L().num(data.wearRate)
         });
-        api.upsert("users", { id: "user_randy", name: data.randyName || "Randy Johnson" });
-        api.upsert("users", { id: "user_partner", name: data.partnerName || "Partner" });
       });
-      toast("Settings saved.");
+      if (!saved || saved.ok !== false) toast("Settings saved.");
       render();
       return;
     }

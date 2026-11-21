@@ -153,7 +153,7 @@ function batch(p) {
   return out({ ok: true });
 }
 
-function okId(id) { return /^[A-Za-z0-9_-]{4,40}$/.test(String(id || '')); }
+function okId(id) { return /^[A-Za-z0-9_-]{3,40}$/.test(String(id || '')); }
 
 function applyOp(op) {
   if (op.op === 'delete') { deleteDoc(op.collection, op.id); return; }
