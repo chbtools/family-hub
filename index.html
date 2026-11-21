@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f3d2a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Family Hub">
+<meta name="description" content="Household and farm hub for Randy Johnson and CW Johnson Farms in Lillington, NC.">
+<title>Family Hub</title>
+<!-- SETUP: paste the Google Apps Script web app URL between the quotes.
+     Leave the quotes empty to open with sample data on this device. -->
+<script>window.HUB_SCRIPT_URL = "";</script>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,650&family=Source+Sans+3:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="css/app.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<a class="skip" href="#view">Skip to content</a>
+<header class="top">
+  <div class="brand">
+    <span class="mark" aria-hidden="true">
+      <svg viewBox="0 0 48 48" width="36" height="36"><rect width="48" height="48" rx="12" fill="#1f6b3a"/><path d="M8 22 L24 10 L40 22 V38 H8Z" fill="#f4efe4"/><rect x="20" y="26" width="8" height="12" rx="1" fill="#1f6b3a"/></svg>
+    </span>
+    <div>
+      <strong>Family Hub</strong>
+      <small id="brandSub">CW Johnson Farms</small>
+    </div>
+  </div>
+  <div class="top-actions">
+    <label class="who"><span class="sr">Who is using this phone</span><select id="who"></select></label>
+    <button class="icon-btn" id="themeBtn" type="button" aria-label="Switch color theme"></button>
+    <button class="fab" id="fab" type="button" aria-label="Quick add">+</button>
+    <button class="icon-btn" id="searchBtn" type="button" aria-label="Search">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="11" cy="11" r="6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 16 L20 20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
+    <button class="btn" id="refreshBtn" type="button">Refresh</button>
+  </div>
+</header>
+<nav class="nav" id="nav" aria-label="Sections"></nav>
+<main class="wrap">
+  <div id="banner"></div>
+  <div id="view" tabindex="-1"></div>
+</main>
+<nav class="tabbar" id="tabbar" aria-label="Sections"></nav>
+<div id="modalRoot"></div>
+<div id="toastRoot" aria-live="polite"></div>
+<div id="printArea"></div>
+<script src="js/logic.js"></script>
+<script src="js/sample.js"></script>
+<script src="js/store.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/views.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+{
+  "name": "family-hub",
+  "private": true,
+  "description": "Household and farm hub for CW Johnson Farms.",
+  "scripts": {
+    "test": "node --test"
+  }
+}
