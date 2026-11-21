@@ -22,7 +22,7 @@ Each person picks their name in the top corner. Randy is already there. The seco
 
 ## What you can do
 
-**Home** is today at a glance for each person: bills that are due or overdue, budget warnings, the next chores and events, goal progress, how many shopping items are left, egg counts, open farm jobs, and money in and out this month. The house devices show here once SmartThings is connected. Charts need a network the first time; the numbers still show if it is offline.
+**Home** is a set of cards: the next trip, bills, money, the farm, chores, shopping, the calendar, budgets, goals, and the house. Tap a title to open that section. On a card you can mark a bill paid, check off a chore or a shopping item, or log eggs. **Edit layout** lets you drag cards (press and hold on a phone or tablet), hide them, and switch each one between small, medium, and full width. Hidden cards come back from the list under the buttons. **Reset to default** restores the original arrangement. The layout is saved for whoever is selected at the top, on this phone and, once the sheet is connected, on the sheet so it follows that person to the other phone. Charts need a network the first time; the numbers still show if it is offline.
 
 **Money** keeps accounts, transactions, categories, and a Personal or Farm tag on every row. There is a monthly budget bar for each expense category (it turns gold near the limit and red when it is over), recurring bills with a due day and an autopay flag, a subscription list, debts with a payoff estimate, savings goals, and a net worth chart. **Add** records a transaction. **Import CSV** reads a file with columns like Date, Amount, Payee, Category, Book, and Memo. **Mark paid** on a bill writes the payment and the expense. Transfers move money between two accounts and stay out of the budget.
 
@@ -121,6 +121,7 @@ After you add or change a property, deploy a **new version** of the existing web
 | itinerary | Flights, drives, lodging, reservations, by day |
 | tripItems | Packing and before-we-leave checklists |
 | templates, templateItems | Reusable checklists, including the farm close-up |
+| layouts | Each person's Home card order, size, and hidden cards |
 
 ## Morning digest
 

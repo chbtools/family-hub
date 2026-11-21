@@ -40,8 +40,22 @@
     itinerary: ["id", "tripId", "date", "time", "kind", "title", "address", "confirmation", "notes", "sort"],
     tripItems: ["id", "tripId", "listName", "kind", "assignee", "text", "done", "sort"],
     templates: ["id", "name", "kind", "notes"],
-    templateItems: ["id", "templateId", "text", "assignee", "sort"]
+    templateItems: ["id", "templateId", "text", "assignee", "sort"],
+    layouts: ["id", "userId", "body", "updatedAt"]
   };
+
+  const WIDGETS = [
+    ["vacation", "Next trip", "lg"],
+    ["bills", "Bills", "md"],
+    ["money", "Money", "md"],
+    ["farm", "Farm", "md"],
+    ["chores", "Chores", "md"],
+    ["shopping", "Shopping", "md"],
+    ["events", "Calendar", "md"],
+    ["budgets", "Budgets", "md"],
+    ["goals", "Goals", "sm"],
+    ["devices", "House", "lg"]
+  ];
 
   const NUMERIC = [
     "balance", "amount", "monthly", "sort", "dueDay", "digestHour", "mileageRate",
@@ -815,6 +829,46 @@
     goalProgress: goalProgress,
     upcomingTrip: upcomingTrip,
     countdown: countdown,
-    tripSpent: tripSpent
+    tripSpent: tripSpent,
+    WIDGETS: WIDGETS,
+    defaultLayout: defaultLayout,
+    normalizeLayout: normalizeLayout,
+    chooseLayout: chooseLayout
   };
+
+  function defaultLayout() {
+    return WIDGETS.map(function (row) { return { id: row[0], size: row[2], show: true }; });
+  }
+
+  function normalizeLayout(input) {
+    const known = {};
+    WIDGETS.forEach(function (row) { known[row[0]] = row[2]; });
+    const out = [];
+    const seen = {};
+    (Array.isArray(input) ? input : []).forEach(function (item) {
+      if (!item || !known[item.id] || seen[item.id]) return;
+      seen[item.id] = true;
+      const size = item.size === "sm" || item.size === "lg" ? item.size : "md";
+      out.push({ id: item.id, size: size, show: item.show !== false && item.show !== "no" });
+    });
+    WIDGETS.forEach(function (row) {
+      if (!seen[row[0]]) out.push({ id: row[0], size: row[2], show: true });
+    });
+    return out;
+  }
+
+  function chooseLayout(state, userId, local) {
+    const row = byId((state && state.layouts) || [], "lay_" + userId);
+    let sheetItems = null;
+    let sheetAt = "";
+    if (row && row.body) {
+      try { sheetItems = JSON.parse(row.body); } catch (e) { sheetItems = null; }
+      sheetAt = String(row.updatedAt || "");
+    }
+    const localAt = local && local.savedAt ? String(local.savedAt) : "";
+    if (local && local.items && localAt >= sheetAt) return normalizeLayout(local.items);
+    if (sheetItems) return normalizeLayout(sheetItems);
+    if (local && local.items) return normalizeLayout(local.items);
+    return defaultLayout();
+  }
 });

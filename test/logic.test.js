@@ -174,6 +174,24 @@ test("vacation countdown, spending, and calendar days", () => {
   assert.ok(L.searchAll(state, "emerald").some((hit) => hit.kind === "Trip"));
 });
 
+test("dashboard layout keeps hides and fills in new cards", () => {
+  const layout = L.normalizeLayout([
+    { id: "bills", size: "lg", show: false },
+    { id: "nope", size: "sm", show: true },
+    { id: "money", size: "tiny", show: true }
+  ]);
+  assert.equal(layout.find((row) => row.id === "bills").show, false);
+  assert.equal(layout.find((row) => row.id === "bills").size, "lg");
+  assert.equal(layout.some((row) => row.id === "nope"), false);
+  assert.equal(layout.find((row) => row.id === "money").size, "md");
+  assert.equal(layout.length, L.WIDGETS.length);
+  const chosen = L.chooseLayout({
+    layouts: [{ id: "lay_user_randy", userId: "user_randy", body: JSON.stringify([{ id: "devices", size: "sm", show: true }]), updatedAt: "2026-11-21T00:00:00.000Z" }]
+  }, "user_randy", { items: [{ id: "vacation", size: "lg", show: false }], savedAt: "2026-11-22T00:00:00.000Z" });
+  assert.equal(chosen[0].id, "vacation");
+  assert.equal(chosen[0].show, false);
+});
+
 test("Code.gs collections match the client schema", () => {
   const src = fs.readFileSync(path.join(__dirname, "..", "Code.gs"), "utf8");
   const block = src.slice(src.indexOf("const COLUMNS"), src.indexOf("const NUMERIC"));
